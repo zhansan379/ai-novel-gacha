@@ -34,9 +34,14 @@ class Story:
     id: str
     premise: str
     synopsis: str = ""
-    passages: list[dict] = field(default_factory=list)  # {no, decision_no, content}
+    passages: list[dict] = field(default_factory=list)  # {no, decision_no, content, lint, consistency}
     decisions: dict[int, Decision] = field(default_factory=dict)
     next_decision_no: int = 1
+    # 前置构建蓝图（世界观 / 历史线 / 角色 / 卷·章大纲）
+    world: dict = field(default_factory=dict)
+    history: list = field(default_factory=list)
+    characters: list = field(default_factory=list)
+    outline: list = field(default_factory=list)
 
     def milestone(self) -> Decision:
         """返回当前待决策节点；不存在则创建。"""

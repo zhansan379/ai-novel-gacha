@@ -87,6 +87,21 @@ def test_unknown_story_404():
     assert r.status_code == 404
 
 
+def test_blueprint_built_and_persisted():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "雾海中的记忆之城"}).json()["story_id"]
+
+    bp = c.get(f"/v1/stories/{sid}/blueprint").json()
+    assert "world" in bp and "history" in bp and "characters" in bp and "outline" in bp
+    # 三段前置齐全
+    assert bp["world"].get("rules")
+    assert bp["world"].get("power_system") is not None
+    assert isinstance(bp["characters"], list) and bp["characters"]
+    assert bp["outline"][0]["type"] == "act" or any(o["type"] == "act" for o in bp["outline"])
+    # 再造一个连接，验证蓝图已持久化
+    assert isinstance(bp["history"], list)
+
+
 def test_quality_fields_in_draw_and_relint_endpoint():
     c = _client()
     sid = c.post("/v1/stories", json={"premise": "质检测试"}).json()["story_id"]

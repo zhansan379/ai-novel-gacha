@@ -16,6 +16,7 @@ class Route:
 ROUTES: dict[str, Route] = {
     # 卡池/世界观/历史/大纲等前置设定：稳定
     "init": Route(temperature=0.5, max_tokens=600),
+    "blueprint": Route(temperature=0.5, max_tokens=1500),
     "direction": Route(temperature=0.7, max_tokens=1200),
     # 正文：更有文采
     "draft": Route(temperature=0.8, max_tokens=800),

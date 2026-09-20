@@ -129,6 +129,19 @@ async def get_story(sid: str = Path(...)):
                         next_decision_no=story.next_decision_no)
 
 
+@router.get("/stories/{sid}/blueprint", tags=["story"])
+async def get_blueprint(sid: str = Path(...)):
+    """读取前置构建：世界观 / 历史线 / 角色 / 卷·章大纲。"""
+    story = decision_path(sid)
+    return {
+        "story_id": story.id,
+        "world": story.world,
+        "history": story.history,
+        "characters": story.characters,
+        "outline": story.outline,
+    }
+
+
 @router.get("/stories/{sid}/decisions/{no}/cards", response_model=CardsResponse, tags=["decision"])
 async def get_cards(sid: str, no: int = Path(..., ge=1)):
     story = decision_path(sid)

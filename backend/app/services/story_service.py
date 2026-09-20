@@ -7,6 +7,7 @@ from app.consistency.checker import ConsistencyChecker
 from app.deslop import scan as deslop_scan
 from app.llm import LLMGateway
 from app.schemas import DirectionKind, DirectionSpec
+from app.services.blueprint import BlueprintBuilder
 from app.services.direction import DirectionGenerator
 from app.services.store import Story, StoryStore
 from app.services.writer import WriterAgent
@@ -22,6 +23,7 @@ class StoryService:
         self._gateway = gateway
         self._direction = direction
         self._writer = writer
+        self._blueprint = BlueprintBuilder(gateway)
         self._consistency = ConsistencyChecker(gateway)
 
     async def _quality(self, premise: str, synopsis: str, content: str) -> tuple[dict, dict]:
@@ -40,6 +42,14 @@ class StoryService:
     async def create(self, premise: str) -> Story:
         synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
         story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip())
+
+        # 三段前置：世界观 / 历史线 / 角色 / 卷章大纲
+        bp = await self._blueprint.build(premise=premise, synopsis=synopsis)
+        story.world = bp.get("world") or {}
+        story.history = bp.get("history") or []
+        story.characters = bp.get("characters") or []
+        story.outline = bp.get("outline") or []
+
         decision = story.milestone()
         decision.cards = await self._direction.generate(
             premise=premise, synopsis=synopsis, tail="", decision_no=decision.no,

@@ -65,6 +65,38 @@ _DRAFT_TEMPLATES = [
 ]
 
 
+def _mock_blueprint(user: str) -> dict:
+    """无 key 时的占位蓝图：三段结构齐全，便于前端/测试看到完整字段。"""
+    hint = _extract_hint(user)
+    return {
+        "world": {
+            "rules": ["魔法受七日蚀月周期影响", "禁术会反噬施术者"],
+            "geography": "一座被雾海环绕的旧城，四周是失落的遗迹",
+            "power_system": "以「记忆刻印」为力量的来源",
+            "factions": ["守刻人公会", "流浪刻师"],
+            "constraints": ["刻印不可逆", "每次刻印都会消耗记忆"],
+        },
+        "history": [
+            {"era": "三百年前", "event": "大封城", "impact": "旧城与外界隔绝，记忆成为货币"},
+            {"era": "一百年前", "event": "刻印之乱", "impact": "守刻人掌握城邦权力"},
+        ],
+        "characters": [
+            {"name": "阿刻", "role": "protagonist", "goal": "找回失去的记忆刻印",
+             "inner_need": "被认可与记起", "flaw": "不敢直面过去的背叛",
+             "trait": "沉默寡言但记性极好"},
+            {"name": "刻影", "role": "supporter", "goal": "推翻守刻人", "inner_need": "真相",
+             "flaw": "偏执", "trait": "流浪刻师，身手矫健"},
+        ],
+        "outline": [
+            {"no": 1, "type": "act", "title": "第一卷·刻雾", "goal": "阿刻意外得到一枚不该存在的刻印"},
+            {"no": 2, "type": "chapter", "title": "首章·雨夜来客", "goal": "引入阿刻与刻影的相遇",
+             "foreshadow": "主角左肩有旧伤"},
+            {"no": 3, "type": "chapter", "title": "次章·旧城底图的裂缝", "goal": "发现古城地底的入口",
+             "foreshadow": "一枚无名令牌"},
+        ],
+    }
+
+
 def _extract_hint(user: str) -> str:
     # 从用户 prompt 里取一行（决策摘要），用于 mock 正文贴合方向
     for line in user.splitlines():
@@ -84,6 +116,8 @@ class MockLLM:
     async def complete(self, *, task: str, system: str, user: str, max_tokens: int = 800) -> str:
         if task == "direction":
             return json.dumps(MOCK_DIRECTION_CARDS, ensure_ascii=False)
+        if task == "blueprint":
+            return json.dumps(_mock_blueprint(user), ensure_ascii=False)
         if task == "init":
             return f"【世界观与大纲占位】围绕主题「{user[:40]}」铺开：三分一设定，三分一历史，三分一伏笔。"
         # draft：贴合 user 提示中的方向摘要

@@ -77,6 +77,30 @@ def _row_to_decision(row: sqlite3.Row) -> Decision:
     return d
 
 
+_BLUEPRINT_KEYS = ("world", "history", "characters", "outline")
+
+
+def _blueprint_json(story: Story) -> str:
+    return json.dumps({
+        "world": story.world, "history": story.history,
+        "characters": story.characters, "outline": story.outline,
+    }, ensure_ascii=False)
+
+
+def _fill_blueprint(story: Story, text: str | None) -> None:
+    if not text:
+        return
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return
+    if isinstance(data, dict):
+        story.world = data.get("world") or {}
+        story.history = data.get("history") or []
+        story.characters = data.get("characters") or []
+        story.outline = data.get("outline") or []
+
+
 class SQLiteStore:
     def __init__(self, db_path: str) -> None:
         self._path = db_path
@@ -87,6 +111,15 @@ class SQLiteStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """轻量列迁移：为既有库补充 blueprint_json。"""
+        with self._lock:
+            cols = [r[1] for r in self._conn.execute("PRAGMA table_info(stories)").fetchall()]
+            if "blueprint_json" not in cols:
+                self._conn.execute("ALTER TABLE stories ADD COLUMN blueprint_json TEXT")
+                self._conn.commit()
 
     def init(self) -> None:
         """幂等建表（构造时已执行，保留以显式调用）。"""
@@ -107,11 +140,14 @@ class SQLiteStore:
 
     def save(self, story: Story) -> Story:
         with self._lock:
-            cur = self._conn.execute(
-                """INSERT INTO stories(id,premise,synopsis,next_decision_no) VALUES(?,?,?,?)
+            self._conn.execute(
+                """INSERT INTO stories(id,premise,synopsis,next_decision_no,blueprint_json)
+                   VALUES(?,?,?,?,?)
                    ON CONFLICT(id) DO UPDATE SET premise=excluded.premise,
-                     synopsis=excluded.synopsis, next_decision_no=excluded.next_decision_no""",
-                (story.id, story.premise, story.synopsis, story.next_decision_no),
+                     synopsis=excluded.synopsis, next_decision_no=excluded.next_decision_no,
+                     blueprint_json=excluded.blueprint_json""",
+                (story.id, story.premise, story.synopsis, story.next_decision_no,
+                 _blueprint_json(story)),
             )
             self._conn.execute("DELETE FROM passages WHERE story_id=?", (story.id,))
             self._conn.executemany(
@@ -147,6 +183,7 @@ class SQLiteStore:
                           for p in passages],
                 decisions={d.no: d for d in (_row_to_decision(r) for r in decision_rows)},
             )
+            _fill_blueprint(story, row["blueprint_json"])
             self._cache[story_id] = story
             return story
 
