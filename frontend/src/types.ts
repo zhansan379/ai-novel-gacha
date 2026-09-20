@@ -123,6 +123,7 @@ export interface CharacterCard {
   name: string; role: string; goal?: string; inner_need?: string; flaw?: string; trait?: string
 }
 export interface OutlineItem { no: number; type: string; title: string; goal: string; foreshadow?: string }
+export interface ForeshadowItem { id: string; text: string; origin: string; status: 'planted' | 'advanced' | 'paid_off' }
 export interface Blueprint {
   story_id: string
   world: WorldSetting
@@ -130,4 +131,5 @@ export interface Blueprint {
   characters: CharacterCard[]
   outline: OutlineItem[]
   style?: string
+  foreshadows?: ForeshadowItem[]
 }

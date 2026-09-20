@@ -14,6 +14,9 @@ const styleName = (id?: string) => {
   return styles.value.find((s) => s.id === id)?.name ?? id
 }
 
+const statusMap: Record<string, string> = { planted: '已埋', advanced: '推进中', paid_off: '已兑现' }
+const statusText = (s: string) => statusMap[s] ?? s
+
 onMounted(async () => {
   loading.value = true
   error.value = null
@@ -69,13 +72,24 @@ onMounted(async () => {
         </div>
       </details>
 
-      <details class="blk" open>
+      <details class="blk">
         <summary>卷 · 章大纲（{{ bp.outline.length }}）</summary>
         <ul>
           <li v-for="o in bp.outline" :key="o.no">
             <b>{{ o.type === 'act' ? '卷' : '章' }} {{ o.no }} · {{ o.title }}</b>
             <span v-if="o.goal">—— {{ o.goal }}</span>
             <span v-if="o.foreshadow" class="fs">（伏笔：{{ o.foreshadow }}）</span>
+          </li>
+        </ul>
+      </details>
+
+      <details v-if="bp.foreshadows?.length" class="blk">
+        <summary>伏笔账本（{{ bp.foreshadows.length }}）</summary>
+        <ul>
+          <li v-for="f in bp.foreshadows" :key="f.id">
+            <span class="chip" :class="'fs-' + f.status">{{ statusText(f.status) }}</span>
+            <span>{{ f.text }}</span>
+            <span v-if="f.origin" class="muted">（{{ f.origin }}）</span>
           </li>
         </ul>
       </details>
@@ -148,6 +162,25 @@ li {
 }
 .fs {
   color: #b45309;
+}
+.chip {
+  display: inline-block;
+  font-size: 12px;
+  padding: 0 6px;
+  border-radius: 4px;
+  margin-right: 6px;
+}
+.fs-planted {
+  background: #fef3c7;
+  color: #b45309;
+}
+.fs-advanced {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.fs-paid_off {
+  background: #d1fae5;
+  color: #047857;
 }
 .muted {
   color: #9ca3af;
