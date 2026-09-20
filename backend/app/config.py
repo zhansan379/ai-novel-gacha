@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     default_model: str = "deepseek-chat"
     # 示例：{"deepseek": "sk-...", "openai": "sk-..."}
     api_keys: dict[str, str] = {}
+    # 各厂商 OpenAI 兼容 Base URL；缺省回退 openai_compat_base_url
+    base_urls: dict[str, str] = {}
+    openai_compat_base_url: str = "https://api.deepseek.com/v1"
+    llm_timeout: float = 60.0
 
 
 settings = Settings()
