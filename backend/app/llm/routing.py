@@ -22,6 +22,8 @@ ROUTES: dict[str, Route] = {
     "draft": Route(temperature=0.8, max_tokens=800),
     # 一致性/审稿：最稳
     "consistency": Route(temperature=0.0, max_tokens=600),
+    # 叙事状态更新（伏笔推进/角色增量）：紧凑、偏执信
+    "narrative_update": Route(temperature=0.2, max_tokens=250),
 }
 
 DEFAULT_ROUTE = Route(temperature=0.7, max_tokens=800)

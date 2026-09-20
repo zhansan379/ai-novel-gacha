@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import type { Blueprint, StyleProfile } from '../types'
+import type { Blueprint, StyleProfile, TimelineEvent } from '../types'
 
 const props = defineProps<{ storyId: string }>()
 const bp = ref<Blueprint | null>(null)
 const styles = ref<StyleProfile[]>([])
+const timeline = ref<TimelineEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -17,11 +18,19 @@ const styleName = (id?: string) => {
 const statusMap: Record<string, string> = { planted: '已埋', advanced: '推进中', paid_off: '已兑现' }
 const statusText = (s: string) => statusMap[s] ?? s
 
+const labelMap: Record<string, string> = {
+  EVENT: '事件', ACTION: '行动', SCENE: '场景', MEETING: '相遇', FORESHADOW: '伏笔', CUSTOM: '自由',
+}
+const labelText = (l?: string | null) => (l ? (labelMap[l] ?? l) : '')
+
 onMounted(async () => {
   loading.value = true
   error.value = null
   try {
-    ;[bp.value, styles.value] = await Promise.all([api.getBlueprint(props.storyId), api.getStyles()])
+    ;[bp.value, styles.value, timeline.value] = await Promise.all([
+      api.getBlueprint(props.storyId), api.getStyles(),
+      api.getTimeline(props.storyId).then((r) => r.timeline),
+    ])
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -69,18 +78,8 @@ onMounted(async () => {
           <div v-if="c.inner_need">内在需求：{{ c.inner_need }}</div>
           <div v-if="c.flaw">缺点：{{ c.flaw }}</div>
           <div v-if="c.trait" class="muted">特征：{{ c.trait }}</div>
+          <div v-if="c.moves?.length" class="moves">动向：{{ c.moves.join(' → ') }}</div>
         </div>
-      </details>
-
-      <details class="blk">
-        <summary>卷 · 章大纲（{{ bp.outline.length }}）</summary>
-        <ul>
-          <li v-for="o in bp.outline" :key="o.no">
-            <b>{{ o.type === 'act' ? '卷' : '章' }} {{ o.no }} · {{ o.title }}</b>
-            <span v-if="o.goal">—— {{ o.goal }}</span>
-            <span v-if="o.foreshadow" class="fs">（伏笔：{{ o.foreshadow }}）</span>
-          </li>
-        </ul>
       </details>
 
       <details v-if="bp.foreshadows?.length" class="blk">
@@ -92,6 +91,17 @@ onMounted(async () => {
             <span v-if="f.origin" class="muted">（{{ f.origin }}）</span>
           </li>
         </ul>
+      </details>
+
+      <details class="blk">
+        <summary>剧情时间线（{{ timeline.length }}）<span class="muted">· 随抽卡追加，非世界历史线</span></summary>
+        <ol v-if="timeline.length" class="tl">
+          <li v-for="ev in timeline" :key="ev.no">
+            <span class="chip">{{ labelText(ev.label) }}</span><b>{{ ev.title || '自由决策' }}</b>
+            <div class="muted">{{ ev.summary }}</div>
+          </li>
+        </ol>
+        <p v-else class="muted">尚无剧情（每做一次决策追加一条）</p>
       </details>
     </template>
   </section>
@@ -160,6 +170,11 @@ li {
   background: #fff;
   border-radius: 6px;
 }
+.moves {
+  color: #047857;
+  font-size: 12px;
+  margin-top: 2px;
+}
 .fs {
   color: #b45309;
 }
@@ -184,6 +199,20 @@ li {
 }
 .muted {
   color: #9ca3af;
+}
+.tl {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.tl li {
+  padding: 6px 8px;
+  background: #fff;
+  border-radius: 6px;
+  border-left: 3px solid #c7d2fe;
 }
 .err {
   color: #dc2626;

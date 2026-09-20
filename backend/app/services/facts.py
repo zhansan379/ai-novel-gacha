@@ -8,21 +8,53 @@ from __future__ import annotations
 from app.services.store import Story
 
 
-def init_foreshadows(outline: list) -> list[dict]:
-    """从卷章大纲中抽取伏笔（去空、去重），初始状态为 planted。"""
+def init_foreshadows(seeds: list) -> list[dict]:
+    """从蓝图伏笔种子抽取初始伏笔（去空、去重），初始状态为 planted。"""
     fs: list[dict] = []
     seen: set[str] = set()
-    for o in outline:
-        raw = (o.get("foreshadow") or "").strip()
+    for seed in seeds:
+        # 兼容旧 outline 结构（{foreshadow: ...}），新格式为纯字符串种子
+        raw = (seed.get("foreshadow") or "").strip() if isinstance(seed, dict) else str(seed).strip()
         if raw and raw not in seen:
             seen.add(raw)
             fs.append({
                 "id": f"fs-{len(fs) + 1}",
                 "text": raw,
-                "origin": f"{o.get('type', '章节')} {o.get('no', '')}".strip(),
+                "origin": "初始设定",
                 "status": "planted",
             })
     return fs
+
+
+def build_narrative_context(story: Story) -> str:
+    """当前叙事状态摘要：世界约束 + 角色现状 + 伏笔账本。
+
+    注入正文/卡池生成的 prompt，让"当前角色与伏笔"真正参与剧情走向；
+    区别于 build_facts（那份是给质检的强制清单）。
+    """
+    lines: list[str] = []
+    for rule in (story.world.get("rules") or []):
+        lines.append(f"- 世界规则：{rule}")
+    for con in (story.world.get("constraints") or []):
+        lines.append(f"- 世界限制：{con}")
+    for c in story.characters:
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        role = "主角" if c.get("role") == "protagonist" else "配角"
+        part = f"- 角色「{name}」({role})"
+        if c.get("goal"):
+            part += f"：目标 {c['goal']}"
+        if c.get("trait"):
+            part += f"，特征 {c['trait']}"
+        if c.get("moves"):
+            part += f"；本段动向：{'、'.join(c['moves'])}"
+        lines.append(part)
+    status_txt = {"planted": "已埋", "advanced": "推进中", "paid_off": "已兑现"}
+    for f in story.foreshadows:
+        st = status_txt.get(f.get("status"), f.get("status"))
+        lines.append(f"- 伏笔({st})：{f.get('text', '')}")
+    return "\n".join(lines)
 
 
 def build_facts(story: Story) -> list[str]:

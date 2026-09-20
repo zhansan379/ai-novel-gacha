@@ -4,7 +4,7 @@
  */
 import type {
   ApplyResponse, Blueprint, CardsResponse, DrawResponse, ModelsConfig, StoryCreated,
-  StorySummary, StyleProfile,
+  StorySummary, StyleProfile, TimelineResponse,
 } from '../types'
 
 const BASE = '/v1'
@@ -81,6 +81,8 @@ export const api = {
   getStory: (storyId: string) => req<StorySummary>(`/stories/${storyId}`),
 
   getBlueprint: (storyId: string) => req<Blueprint>(`/stories/${storyId}/blueprint`),
+
+  getTimeline: (storyId: string) => req<TimelineResponse>(`/stories/${storyId}/timeline`),
 
   getCards: (storyId: string, decisionNo: number) =>
     req<CardsResponse>(`/stories/${storyId}/decisions/${decisionNo}/cards`),

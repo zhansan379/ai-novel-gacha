@@ -105,6 +105,7 @@ class StorySummary(BaseModel):
     passages: list[str]
     next_decision_no: int
     style_profile_id: str = "restrained"
+    timeline: list[dict] = []
 
 
 # ---------- 工具 ----------
@@ -203,7 +204,15 @@ async def get_story(sid: str = Path(...)):
     return StorySummary(story_id=story.id, premise=story.premise, synopsis=story.synopsis,
                         passages=[p["content"] for p in story.passages],
                         next_decision_no=story.next_decision_no,
-                        style_profile_id=story.style_profile_id)
+                        style_profile_id=story.style_profile_id,
+                        timeline=story.timeline)
+
+
+@router.get("/stories/{sid}/timeline", tags=["story"])
+async def get_timeline(sid: str = Path(...)):
+    """剧情时间线（复盘账本）：逐决策追加的事件流；区别于世界历史线 world.history。"""
+    story = decision_path(sid)
+    return {"story_id": story.id, "timeline": story.timeline}
 
 
 @router.get("/stories/{sid}/blueprint", tags=["story"])
@@ -215,7 +224,6 @@ async def get_blueprint(sid: str = Path(...)):
         "world": story.world,
         "history": story.history,
         "characters": story.characters,
-        "outline": story.outline,
         "style": story.style_profile_id,
         "foreshadows": story.foreshadows,
     }

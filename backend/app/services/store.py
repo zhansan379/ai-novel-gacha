@@ -37,14 +37,16 @@ class Story:
     passages: list[dict] = field(default_factory=list)  # {no, decision_no, content, lint, consistency}
     decisions: dict[int, Decision] = field(default_factory=dict)
     next_decision_no: int = 1
-    # 前置构建蓝图（世界观 / 历史线 / 角色 / 卷·章大纲）
+    # 前置构建蓝图（世界观 / 历史线 / 角色）
     world: dict = field(default_factory=dict)
     history: list = field(default_factory=list)
     characters: list = field(default_factory=list)
-    outline: list = field(default_factory=list)
     style_profile_id: str = "restrained"
     # 伏笔账本：[{id, text, origin, status: planted|advanced|paid_off}]
     foreshadows: list = field(default_factory=list)
+    # 剧情时间线（复盘账本）：随每次决策追加，{no, decision_no, mode, card_id, label, title, summary}
+    # 与 world.history（世界历史线·固定背景）是两回事，二者互不影响。
+    timeline: list = field(default_factory=list)
 
     def milestone(self) -> Decision:
         """返回当前待决策节点；不存在则创建。"""

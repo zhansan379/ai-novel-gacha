@@ -77,14 +77,11 @@ def _row_to_decision(row: sqlite3.Row) -> Decision:
     return d
 
 
-_BLUEPRINT_KEYS = ("world", "history", "characters", "outline")
-
-
 def _blueprint_json(story: Story) -> str:
     return json.dumps({
         "world": story.world, "history": story.history,
-        "characters": story.characters, "outline": story.outline,
-        "style": story.style_profile_id, "foreshadows": story.foreshadows,
+        "characters": story.characters, "style": story.style_profile_id,
+        "foreshadows": story.foreshadows, "timeline": story.timeline,
     }, ensure_ascii=False)
 
 
@@ -99,8 +96,8 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
         story.world = data.get("world") or {}
         story.history = data.get("history") or []
         story.characters = data.get("characters") or []
-        story.outline = data.get("outline") or []
         story.foreshadows = data.get("foreshadows") or []
+        story.timeline = data.get("timeline") or []
         if data.get("style"):
             story.style_profile_id = data["style"]
 

@@ -1,4 +1,7 @@
 """SQLite 持久化：写入后可跨实例重载（重启不丢）。"""
+import json
+import sqlite3
+
 from app.schemas import Card, CardLabel, Rarity
 from app.services.store import Decision, Story
 from app.storage.sqlite import SQLiteStore
@@ -55,4 +58,47 @@ def test_overwrite_updates_rows(tmp_path):
     loaded = b.get("s-persist")
     assert len(loaded.passages) == 3
     assert loaded.passages[-1]["content"] == "追加的新段落。"
+    b.close()
+
+
+def test_timeline_persists_and_world_history_untouched(tmp_path):
+    path = str(tmp_path / "t.db")
+    story = _sample_story()
+    story.history = [{"era": "三百年前", "event": "大封城", "impact": "旧城与外界隔绝"}]
+    story.timeline = [
+        {"no": 2, "decision_no": 1, "mode": "gacha_draw", "card_id": "x-1",
+         "label": "EVENT", "title": "夜雨", "summary": "雨夜有人敲门。"}
+    ]
+    a = SQLiteStore(path)
+    a.save(story)
+    a.close()
+
+    b = SQLiteStore(path)
+    loaded = b.get("s-persist")
+    assert loaded.timeline == story.timeline
+    assert loaded.history == story.history  # 世界历史线保持不变
+    b.close()
+
+
+def test_old_row_without_timeline_defaults_empty(tmp_path):
+    """旧库写入的 blueprint_json 不含 timeline → 读回应回退为空列表。"""
+    path = str(tmp_path / "old.db")
+    a = SQLiteStore(path)
+    story = _sample_story()
+    story.history = [{"era": "a", "event": "b", "impact": "c"}]
+    a.save(story)
+    conn = sqlite3.connect(path)
+    row = conn.execute("SELECT blueprint_json FROM stories WHERE id='s-persist'").fetchone()
+    data = json.loads(row[0])
+    data.pop("timeline", None)
+    conn.execute("UPDATE stories SET blueprint_json=? WHERE id='s-persist'",
+                 (json.dumps(data),))
+    conn.commit()
+    conn.close()
+    a.close()
+
+    b = SQLiteStore(path)
+    reloaded = b.get("s-persist")
+    assert reloaded.timeline == []
+    assert reloaded.history == [{"era": "a", "event": "b", "impact": "c"}]
     b.close()

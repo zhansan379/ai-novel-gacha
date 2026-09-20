@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { useDecisionStore } from '../stores/decision'
@@ -10,6 +10,25 @@ const store = useDecisionStore()
 const premise = ref('')
 const styles = ref<StyleProfile[]>([])
 const selectedStyle = ref<string>('')
+
+// 开书阶段提示（本地时序切换，非真实后端进度，仅供视觉反馈）
+const PHASES = ['构建世界观与角色', '埋伏笔 · 织历史线', '抽取首轮命运卡', '撰写开篇正文']
+const phase = ref(PHASES[0])
+let phaseTimer: number | undefined
+
+watch(() => store.loading, (loading) => {
+  clearInterval(phaseTimer)
+  if (loading) {
+    let i = 0
+    phase.value = PHASES[i]
+    phaseTimer = window.setInterval(() => {
+      i = (i + 1) % PHASES.length
+      phase.value = PHASES[i]
+    }, 1100)
+  } else {
+    phase.value = PHASES[0]
+  }
+})
 
 onMounted(async () => {
   try {
@@ -51,6 +70,12 @@ async function createStory() {
         <button class="btn primary big" :disabled="store.loading" @click="createStory">
           {{ store.loading ? '开书中…' : '抽 卡 开 书' }}
         </button>
+      </div>
+
+      <div v-if="store.loading" class="opening">
+        <span class="spinner" aria-hidden="true"></span>
+        <span class="phase">{{ phase }}</span>
+        <span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>
       </div>
 
       <div class="style-row">
@@ -169,6 +194,41 @@ async function createStory() {
 }
 .error {
   color: #dc2626;
+}
+.opening {
+  margin-top: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #6b7280;
+  font-size: 14px;
+  min-height: 22px;
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.phase {
+  color: #111827;
+  font-weight: 500;
+}
+.dots i {
+  font-style: normal;
+  animation: blink 1.4s infinite;
+}
+.dots i:nth-child(2) { animation-delay: 0.2s; }
+.dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink {
+  0%, 20% { opacity: 0; }
+  40% { opacity: 1; }
 }
 .note {
   margin-top: 34px;

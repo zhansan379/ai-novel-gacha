@@ -28,8 +28,7 @@ _STUB_BLUEPRINT = {
     "history": [{"era": "三百年前", "event": "大封城", "impact": "旧城与外界隔绝"}],
     "characters": [{"name": "主角", "role": "protagonist", "goal": "找回失去的记忆刻印",
                     "inner_need": "被认可", "flaw": "逃避过去", "trait": "记性极好"}],
-    "outline": [{"no": 1, "type": "act", "title": "第一卷", "goal": "引入冲突"},
-                {"no": 2, "type": "chapter", "title": "首章", "goal": "相遇", "foreshadow": "左肩旧伤"}],
+    "foreshadow_seeds": ["左肩旧伤", "无名令牌"],
 }
 
 _PROSE = "他把门推开一条缝，冷风携着雨丝灌进来。墙角的旧钟敲过三下，故事由此展开。"
@@ -42,6 +41,12 @@ async def _stub_complete(self, *, task, system, user, max_tokens=None, temperatu
         return json.dumps(_STUB_BLUEPRINT, ensure_ascii=False)
     if task == "consistency":
         return '{"passed": true, "issues": []}'
+    if task == "narrative_update":
+        return json.dumps({
+            "foreshadow_updates": [{"text": "左肩旧伤", "status": "advanced"}],
+            "character_updates": [{"name": "主角", "note": "这一拍揭开了身世一角"}],
+            "new_foreshadows": ["一枚无名令牌"],
+        }, ensure_ascii=False)
     if task == "init":
         return "一个失忆者在雾海旧城寻找身份的故事，基调悬疑，节奏克制。"
     return _PROSE
@@ -143,14 +148,17 @@ def test_blueprint_built_and_persisted():
     sid = c.post("/v1/stories", json={"premise": "雾海中的记忆之城"}).json()["story_id"]
 
     bp = c.get(f"/v1/stories/{sid}/blueprint").json()
-    assert "world" in bp and "history" in bp and "characters" in bp and "outline" in bp
-    # 三段前置齐全
+    assert "world" in bp and "history" in bp and "characters" in bp
+    # 前置齐全
     assert bp["world"].get("rules")
     assert bp["world"].get("power_system") is not None
     assert isinstance(bp["characters"], list) and bp["characters"]
-    assert bp["outline"][0]["type"] == "act" or any(o["type"] == "act" for o in bp["outline"])
-    # 再造一个连接，验证蓝图已持久化
+    # 初始伏笔从 foreshadow_seeds 长出
     assert isinstance(bp["history"], list)
+    assert all(f["text"] in {"左肩旧伤", "无名令牌"} for f in bp["foreshadows"])
+    assert all(f["status"] == "planted" for f in bp["foreshadows"])
+    # 不再产出预设卷章大纲
+    assert "outline" not in bp
 
 
 def test_quality_fields_in_draw_and_relint_endpoint():
@@ -185,3 +193,54 @@ def test_stream_requires_one_action():
     r = c.post(f"/v1/stories/{sid}/decisions/1/stream",
                json={"draw": True, "custom_instruction": "x"})
     assert r.status_code == 422
+
+
+def test_timeline_grows_with_decisions_world_history_fixed():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "雾海记忆城"}).json()["story_id"]
+
+    # 开书（开篇非决策）时间线为空
+    assert c.get(f"/v1/stories/{sid}/timeline").json()["timeline"] == []
+    # 世界历史线是蓝图产物（固定背景），记下其快照
+    history = c.get(f"/v1/stories/{sid}/blueprint").json()["history"]
+    history_before = list(history)
+
+    # 抽卡 → 时间线追加一条，且带决策上下文
+    drawn = c.post(f"/v1/stories/{sid}/decisions/1/gacha").json()
+    tl = c.get(f"/v1/stories/{sid}/timeline").json()["timeline"]
+    assert len(tl) == 1
+    assert tl[0]["decision_no"] == 1
+    assert tl[0]["mode"] == "gacha_draw"
+    assert tl[0]["card_id"] == drawn["card"]["card_id"]
+    assert tl[0]["summary"]
+
+    # 普通 apply → 时间线再追加一条
+    created = c.post("/v1/stories", json={"premise": "另一本"}).json()
+    sid3 = created["story_id"]
+    card_id = created["cards"][0]["card_id"]
+    c.post(f"/v1/stories/{sid3}/decisions/1/apply", json={"card_id": card_id})
+    tl2 = c.get(f"/v1/stories/{sid3}/timeline").json()["timeline"]
+    assert len(tl2) == 1
+    assert tl2[0]["label"]  # 从所选卡提炼的 label
+
+    # 抽卡绝不改动世界历史线
+    assert c.get(f"/v1/stories/{sid}/blueprint").json()["history"] == history_before
+
+
+def test_narrative_state_advances_with_decision():
+    """决策后：伏笔状态推进、角色增量更新，并回写可视化。"""
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "雾海记忆城"}).json()["story_id"]
+
+    bp0 = c.get(f"/v1/stories/{sid}/blueprint").json()
+    assert all(f["status"] == "planted" for f in bp0["foreshadows"])
+    assert all(not c0.get("moves") for c0 in bp0["characters"])
+
+    c.post(f"/v1/stories/{sid}/decisions/1/gacha")
+
+    bp1 = c.get(f"/v1/stories/{sid}/blueprint").json()
+    statuses = {f["text"]: f["status"] for f in bp1["foreshadows"]}
+    assert statuses.get("左肩旧伤") == "advanced"  # 被推进
+    protagonist = next(c0 for c0 in bp1["characters"] if c0["name"] == "主角")
+    assert protagonist.get("moves")  # 有本段动向
+    assert "无名令牌" in statuses  # 已有种子，不重复新增

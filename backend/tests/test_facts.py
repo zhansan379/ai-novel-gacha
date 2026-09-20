@@ -3,13 +3,8 @@ from app.services.store import Story
 
 
 def test_init_foreshadows_dedupes_and_filters_empty():
-    outline = [
-        {"type": "act", "no": 1, "foreshadow": "左肩旧伤"},
-        {"type": "chapter", "no": 2, "foreshadow": "一枚无名令牌"},
-        {"type": "chapter", "no": 3, "foreshadow": ""},
-        {"type": "chapter", "no": 4, "foreshadow": "左肩旧伤"},  # 重复
-    ]
-    fs = init_foreshadows(outline)
+    seeds = ["左肩旧伤", "一枚无名令牌", "", "左肩旧伤"]  # 空与重复均剔除
+    fs = init_foreshadows(seeds)
     assert [f["text"] for f in fs] == ["左肩旧伤", "一枚无名令牌"]
     assert all(f["status"] == "planted" for f in fs)
 
@@ -22,9 +17,8 @@ def test_build_facts_from_blueprint():
             {"name": "刻影", "role": "supporter", "goal": "真相", "inner_need": "", "flaw": ""},
         ],
         world={"rules": ["刻印不可逆"], "constraints": ["每次刻印消耗记忆"]},
-        outline=[{"type": "chapter", "no": 1, "foreshadow": "无名令牌"}],
     )
-    story.foreshadows = init_foreshadows(story.outline)
+    story.foreshadows = init_foreshadows(["无名令牌"])
     facts = build_facts(story)
     joined = "\n".join(facts)
     assert "阿刻" in joined

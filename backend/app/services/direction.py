@@ -44,11 +44,14 @@ class DirectionGenerator:
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
 
-    async def generate(self, *, premise: str, synopsis: str, tail: str, decision_no: int) -> list[Card]:
+    async def generate(self, *, premise: str, synopsis: str, tail: str, decision_no: int,
+                       context: str = "") -> list[Card]:
+        ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
         user = (
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
             f"【待决剧情尾巴】{tail}\n"
+            f"{ctx}\n"
             f"【本次分歧节点 #{decision_no}】请输出命运卡 JSON 数组："
         )
         raw = await self._gateway.complete(task="direction", system=_DIRECTION_SYSTEM, user=user)

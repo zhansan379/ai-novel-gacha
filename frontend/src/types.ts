@@ -117,7 +117,19 @@ export interface StorySummary {
   synopsis: string
   passages: string[]
   next_decision_no: number
+  timeline?: TimelineEvent[]
 }
+
+export interface TimelineEvent {
+  no: number
+  decision_no: number
+  mode: string
+  card_id?: string | null
+  label?: string | null
+  title?: string | null
+  summary: string
+}
+export interface TimelineResponse { story_id: string; timeline: TimelineEvent[] }
 
 // ---- 前置构建蓝图 ----
 export interface WorldSetting {
@@ -130,15 +142,14 @@ export interface WorldSetting {
 export interface HistoryEvent { era: string; event: string; impact: string }
 export interface CharacterCard {
   name: string; role: string; goal?: string; inner_need?: string; flaw?: string; trait?: string
+  moves?: string[]
 }
-export interface OutlineItem { no: number; type: string; title: string; goal: string; foreshadow?: string }
 export interface ForeshadowItem { id: string; text: string; origin: string; status: 'planted' | 'advanced' | 'paid_off' }
 export interface Blueprint {
   story_id: string
   world: WorldSetting
   history: HistoryEvent[]
   characters: CharacterCard[]
-  outline: OutlineItem[]
   style?: string
   foreshadows?: ForeshadowItem[]
 }

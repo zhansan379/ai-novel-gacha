@@ -27,39 +27,41 @@ class WriterAgent:
         return _WRITER_SYSTEM + "\n[文风要求]" + style_txt
 
     async def generate(self, *, premise: str, synopsis: str, direction: DirectionSpec | None,
-                       tail: str = "", style_profile_id: str | None = None) -> str:
+                       tail: str = "", style_profile_id: str | None = None, context: str = "") -> str:
         style = get_style(style_profile_id)
         system = self._system(style)
+        ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
         if direction is None:
             return await self._gateway.complete(
                 task="draft", system=system, temperature=style.temperature,
-                user=(f"【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："),
+                user=(f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："),
             )
         extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
         user = (
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
             f"{f'【上一段】{tail}\n' if tail else ''}"
-            f"【已确定方向】{direction.summary}{extra}\n"
+            f"【已确定方向】{direction.summary}{extra}{ctx}\n"
             "请按此方向续写正文："
         )
         return await self._gateway.complete(task="draft", system=system, temperature=style.temperature, user=user)
 
     async def stream_generate(self, *, premise: str, synopsis: str,
                               direction: DirectionSpec | None, tail: str = "",
-                              style_profile_id: str | None = None) -> AsyncIterator[str]:
+                              style_profile_id: str | None = None, context: str = "") -> AsyncIterator[str]:
         """流式续写：逐个增量产出正文（供 SSE）。"""
         style = get_style(style_profile_id)
         system = self._system(style)
+        ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
         if direction is None:
-            user = f"【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："
+            user = f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："
         else:
             extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
             user = (
                 f"【故事前提】{premise}\n"
                 f"【故事简介】{synopsis}\n"
                 f"{f'【上一段】{tail}\n' if tail else ''}"
-                f"【已确定方向】{direction.summary}{extra}\n"
+                f"【已确定方向】{direction.summary}{extra}{ctx}\n"
                 "请按此方向续写正文："
             )
         stream = self._gateway.stream(task="draft", system=system, user=user,
