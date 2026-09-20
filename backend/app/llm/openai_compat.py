@@ -48,7 +48,11 @@ class OpenAICompatLLM:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 res = await client.post(self.endpoint, json=payload, headers=headers)
         except httpx.HTTPError as exc:
-            raise ModelError(f"模型请求失败: {exc}") from exc
+            detail = str(exc).strip()
+            msg = f"模型请求失败：无法访问 {self.endpoint}（{type(exc).__name__}）"
+            if detail:
+                msg += f"：{detail}"
+            raise ModelError(msg) from exc
 
         if res.status_code == 402 or res.status_code == 429:
             raise QuotaError(f"配额/限流({res.status_code}): {res.text[:200]}")
@@ -99,4 +103,8 @@ class OpenAICompatLLM:
                         if delta:
                             yield delta
         except httpx.HTTPError as exc:
-            raise ModelError(f"模型请求失败: {exc}") from exc
+            detail = str(exc).strip()
+            msg = f"模型请求失败：无法访问 {self.endpoint}（{type(exc).__name__}）"
+            if detail:
+                msg += f"：{detail}"
+            raise ModelError(msg) from exc

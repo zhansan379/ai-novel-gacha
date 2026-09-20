@@ -372,6 +372,8 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
                 })
             elif etype == "delta":
                 yield _sse("delta", {"text": ev["text"]})
+            elif etype == "error":
+                yield _sse("passage_error", {"message": ev.get("message", "生成失败，该步已回滚，可重试")})
             else:  # end
                 p = ev["passage"]
                 yield _sse("passage_end", {

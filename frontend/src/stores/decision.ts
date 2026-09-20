@@ -151,6 +151,10 @@ export const useDecisionStore = defineStore('decision', () => {
           lastConsistency.value = d.consistency ?? null
           nextDecisionNo.value = d.next_decision_no
           streamingText.value = ''
+        } else if (ev.event === 'passage_error') {
+          // 生成收尾失败（如下一分歧卡不合规）：展示错误，该步已在服务端回滚，可重试
+          streamingText.value = ''
+          throw new Error((ev.data as { message: string }).message ?? '生成失败，该步已回滚')
         }
       })
       // 自动进入下一分歧：直接加载新卡池，无需再点"进入下一分歧"

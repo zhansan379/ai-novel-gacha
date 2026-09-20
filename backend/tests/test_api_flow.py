@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.llm import LLMGateway
+from app.llm.errors import ModelError
 from app.services import registry
 
 _STUB_CARDS = [
@@ -274,3 +275,26 @@ def test_undo_with_nothing_returns_409():
     sid = c.post("/v1/stories", json={"premise": "x"}).json()["story_id"]
     r = c.post(f"/v1/stories/{sid}/undo")
     assert r.status_code == 409
+
+
+def test_stream_mid_generation_failure_is_graceful_and_rolls_back(monkeypatch):
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "雾海记忆城"}).json()["story_id"]
+
+    async def fail_direction(self, *, task, system, user, max_tokens=None, temperature=None):
+        if task == "direction":
+            raise ModelError("命运卡响应不符合 schema")
+        return await _stub_complete(self, task=task, system=system, user=user,
+                                    max_tokens=max_tokens, temperature=temperature)
+
+    monkeypatch.setattr(LLMGateway, "complete", fail_direction)
+    r = c.post(f"/v1/stories/{sid}/decisions/1/stream", json={"draw": True})
+    assert r.status_code == 200
+    # 已是 SSE 流，不应崩溃；且发出 passage_error 而非无声截断
+    assert "event: passage_error" in r.text
+    # 服务端已回滚：该步正文未持久化，正文仍只剩开篇
+    assert len(c.get(f"/v1/stories/{sid}").json()["passages"]) == 1
+
+    # 决策未被锁死：恢复好桩后重试不再 409
+    monkeypatch.setattr(LLMGateway, "complete", _stub_complete)
+    assert c.post(f"/v1/stories/{sid}/decisions/1/gacha").status_code == 200

@@ -134,6 +134,20 @@ class StoryService:
         return {"undo": True, "next_decision_no": last_no,
                 "passages_remaining": len(story.passages)}
 
+    @staticmethod
+    def _rollback_decision(story: Story, decision, decision_no: int) -> None:
+        """决策中途失败时回滚：解锁、移除未持久化的段落/时间线、还原角色与伏笔快照。"""
+        decision.applied = False
+        decision.mode = None
+        decision.card_id = None
+        decision.direction_spec = None
+        story.passages = [p for p in story.passages if p.get("decision_no") != decision_no]
+        story.timeline = [t for t in story.timeline if t.get("decision_no") != decision_no]
+        if decision.rollback:
+            story.characters = decision.rollback.get("characters") or story.characters
+            story.foreshadows = decision.rollback.get("foreshadows") or story.foreshadows
+        story.next_decision_no = decision_no  # 回到本决策，可重试
+
     async def _advance_state(self, story: Story, direction_spec: DirectionSpec | None,
                              passage: str) -> None:
         """决策后：若命中变点，让伏笔/角色随这拍剧情推进，成为后续生成/质检的上下文。"""
@@ -181,15 +195,18 @@ class StoryService:
                    "content": prose.strip(), "lint": lint, "consistency": consistency}
         story.passages.append(passage)
         self._append_timeline(story, decision, passage["no"], prose.strip())
-        await self._advance_state(story, direction_spec, prose.strip())
-
-        # 预生成下一分歧点的卡池（基于推进后的状态）
-        next_d = story.advance()
-        next_d.cards = await self._direction.generate(
-            premise=story.premise, synopsis=story.synopsis, tail=prose, decision_no=next_d.no,
-            context=build_narrative_context(story),
-        )
-        self._store.save(story)
+        try:
+            await self._advance_state(story, direction_spec, prose.strip())
+            # 预生成下一分歧点的卡池（基于推进后的状态）
+            next_d = story.advance()
+            next_d.cards = await self._direction.generate(
+                premise=story.premise, synopsis=story.synopsis, tail=prose, decision_no=next_d.no,
+                context=build_narrative_context(story),
+            )
+            self._store.save(story)
+        except Exception:
+            self._rollback_decision(story, decision, decision_no)
+            raise
         return passage
 
     async def apply_decision_stream(self, story: Story, decision_no: int, mode: str,
@@ -225,25 +242,34 @@ class StoryService:
             ):
                 pieces.append(chunk)
                 yield {"type": "delta", "text": chunk}
-        except Exception:
-            decision.applied = False  # 出错回滚，允许重试
-            raise
+        except Exception as exc:
+            # 正文流中途失败：回滚该决策，发干净的错误事件（避免已开始的流上再抛异常）
+            self._rollback_decision(story, decision, decision_no)
+            yield {"type": "error", "message": str(exc)}
+            return
 
         content = "".join(pieces).strip()
-        lint, consistency = await self._quality(story.premise, story.synopsis, content,
-                                                facts=build_facts(story))
-        passage = {"no": len(story.passages) + 1, "decision_no": decision_no,
-                   "content": content, "lint": lint, "consistency": consistency}
-        story.passages.append(passage)
-        self._append_timeline(story, decision, passage["no"], content)
-        await self._advance_state(story, direction_spec, content)
+        try:
+            lint, consistency = await self._quality(story.premise, story.synopsis, content,
+                                                    facts=build_facts(story))
+            passage = {"no": len(story.passages) + 1, "decision_no": decision_no,
+                       "content": content, "lint": lint, "consistency": consistency}
+            story.passages.append(passage)
+            self._append_timeline(story, decision, passage["no"], content)
+            await self._advance_state(story, direction_spec, content)
 
-        next_d = story.advance()
-        next_d.cards = await self._direction.generate(
-            premise=story.premise, synopsis=story.synopsis, tail=content, decision_no=next_d.no,
-            context=build_narrative_context(story),
-        )
-        self._store.save(story)
+            next_d = story.advance()
+            next_d.cards = await self._direction.generate(
+                premise=story.premise, synopsis=story.synopsis, tail=content, decision_no=next_d.no,
+                context=build_narrative_context(story),
+            )
+            self._store.save(story)
+        except Exception as exc:
+            # 正文已流式发出但收尾失败：回滚该决策，并抛出一个干净的 SSE 错误事件，
+            # 避免在已开始的流上抛异常导致 "Response already started"。
+            self._rollback_decision(story, decision, decision_no)
+            yield {"type": "error", "message": str(exc)}
+            return
         yield {"type": "end", "passage": passage, "next_decision_no": story.next_decision_no}
 
     @staticmethod
