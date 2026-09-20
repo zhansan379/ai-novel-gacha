@@ -213,7 +213,7 @@ class StoryService:
             # 预生成下一分歧点的卡池（基于推进后的状态）
             next_d = story.advance()
             next_d.cards = await self._direction.generate(
-                premise=story.premise, synopsis=story.synopsis, tail=prose, decision_no=next_d.no,
+                premise=story.premise, synopsis=story.synopsis, tail=content, decision_no=next_d.no,
                 context=build_narrative_context(story),
             )
             self._store.save(story)
@@ -261,7 +261,7 @@ class StoryService:
             yield {"type": "error", "message": str(exc)}
             return
 
-        content = "".join(pieces).strip()
+        content = _normalize_paragraphs("".join(pieces))
         try:
             lint, consistency = await self._quality(story.premise, story.synopsis, content,
                                                     facts=build_facts(story))

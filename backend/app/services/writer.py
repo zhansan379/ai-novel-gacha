@@ -16,6 +16,16 @@ _WRITER_SYSTEM = """你是长篇小说的正文作者。
 基于故事设定与已确定的剧情方向，续写一段中文正文（200~400 字）。只输出正文本身，不要标题、不要解释。
 """
 
+_METHODOLOGY = """[写作方法论：展示而非告知]
+本段只对自己负责（局部真实），跨段铺垫与叙事走向由前文设定控制，不在本段硬塞。
+- 1. 场景是感觉得到的，不是说得出的：每个关键场景至少从声音、尺度/数字、画面、人物动作、生存逻辑中取两样落地；不直呼“恐怖/神秘/重要”，让读者自己去感受。
+- 2. 人物活在动作与对话里，不用标签：用具体动作、语气、生活细节刻画性格；不用“目光锐利如夜行猫”“微微一笑”“目光深邃”这类套话；旧伤、家变、宿怨等关键过往须先铺垫，禁止突然空降。
+- 3. 因果要付代价，线索不白给：帮助与信物须有动机、隐瞒或代价，不能无缘白送；“此物藏有奥秘”须用异象/异感证明，不能只靠台词交代；重大抉择要带出追兵、风险、牺牲等真实阻力。
+- 4. 语言有节奏：长短句交错，动词准确；禁堆副词/形容词，忌文白夹杂。避免填充词：仿佛、似乎、缓缓、微微、一丝、闪过。
+- 5. 一致性：人名、地名、设定前后统一，杜绝混用。
+- 6. 背景要透口，不设路障：借角色视角、现场环境、自然对白让读者进入世界氛围与设定，不假设读者已知背景；但禁止整段设定说明或名词堆砌，交代点到即止、融入叙事。
+"""
+
 
 class WriterAgent:
     def __init__(self, gateway: LLMGateway) -> None:
@@ -24,7 +34,7 @@ class WriterAgent:
     def _system(self, style: StyleProfile) -> str:
         forbid = "；".join(f"避免{tag}" for tag in style.forbidden) if style.forbidden else ""
         style_txt = f"{style.system_prompt}\n{forbid}" if forbid else style.system_prompt
-        return _WRITER_SYSTEM + "\n[文风要求]" + style_txt
+        return _WRITER_SYSTEM + "\n[文风要求]" + style_txt + "\n" + _METHODOLOGY
 
     async def generate(self, *, premise: str, synopsis: str, direction: DirectionSpec | None,
                        tail: str = "", style_profile_id: str | None = None, context: str = "") -> str:
@@ -37,10 +47,11 @@ class WriterAgent:
                 user=(f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："),
             )
         extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
+        tail_seg = f"【上一段】{tail}\n" if tail else ""
         user = (
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
-            f"{f'【上一段】{tail}\n' if tail else ''}"
+            f"{tail_seg}"
             f"【已确定方向】{direction.summary}{extra}{ctx}\n"
             "请按此方向续写正文："
         )
@@ -57,10 +68,11 @@ class WriterAgent:
             user = f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："
         else:
             extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
+            tail_seg = f"【上一段】{tail}\n" if tail else ""
             user = (
                 f"【故事前提】{premise}\n"
                 f"【故事简介】{synopsis}\n"
-                f"{f'【上一段】{tail}\n' if tail else ''}"
+                f"{tail_seg}"
                 f"【已确定方向】{direction.summary}{extra}{ctx}\n"
                 "请按此方向续写正文："
             )

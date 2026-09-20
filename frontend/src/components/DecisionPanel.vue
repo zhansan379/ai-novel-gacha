@@ -53,7 +53,10 @@ function labelCn(label: string) {
         </button>
       </div>
 
-      <div class="pick-grid">
+      <div
+        class="pick-grid"
+        :style="{ gridTemplateColumns: `repeat(${store.cards.length}, minmax(150px, 220px))` }"
+      >
         <button
           v-for="card in store.cards"
           :key="card.card_id"
@@ -268,7 +271,9 @@ function labelCn(label: string) {
 }
 .pick-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  width: max-content;
+  max-width: 100%;
+  justify-content: center;
   gap: 16px;
 }
 .card.chosen {
