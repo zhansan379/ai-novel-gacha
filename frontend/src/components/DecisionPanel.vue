@@ -33,7 +33,7 @@ function kindLabel(kind: string) {
       <h3 class="panel-title">剧情推进 · {{ kindLabel(store.lastAction.kind) }}</h3>
       <div
         v-if="store.lastAction.card"
-        class="card"
+        class="card reveal"
         :class="rarityClass(store.lastAction.card.rarity)"
       >
         <span class="card-rarity">{{ store.lastAction.card.rarity }}</span>
@@ -74,7 +74,7 @@ function kindLabel(kind: string) {
       <!-- 盲抽 -->
       <div v-if="tab === 'gacha_draw'" class="mode-body">
         <p class="hint">在完全不知道结果的情况下随机揭晓一张命运卡。</p>
-        <button class="btn primary big" :disabled="store.loading" @click="store.draw">
+        <button class="btn primary big pulse" :disabled="store.loading" @click="store.draw">
           {{ store.loading ? '抽卡中…' : '抽 卡' }}
         </button>
       </div>
@@ -175,6 +175,25 @@ function kindLabel(kind: string) {
   background: #fff;
   position: relative;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.18s ease;
+}
+.card:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
+.card.reveal {
+  animation: reveal 0.3s ease;
+}
+@keyframes reveal {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.pulse {
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 8px 22px rgba(79, 70, 229, 0.35); }
+  50% { box-shadow: 0 8px 34px rgba(219, 39, 119, 0.55); }
 }
 .card h4 {
   margin: 6px 0 4px;

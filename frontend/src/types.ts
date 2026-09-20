@@ -55,6 +55,15 @@ export interface StyleProfile {
   forbidden: string[]
 }
 
+export interface ModelsConfig {
+  provider: string
+  model: string
+  base_url: string
+  configured: boolean
+  api_key_set: boolean
+  mode: 'mock' | 'openai-compat'
+}
+
 export interface CardsResponse {
   decision_no: number
   pool_version: number

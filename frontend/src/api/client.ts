@@ -3,7 +3,8 @@
  * 类型与《接口契约》一致，远期由 OpenAPI 生成替换。
  */
 import type {
-  ApplyResponse, Blueprint, CardsResponse, DrawResponse, StoryCreated, StorySummary, StyleProfile,
+  ApplyResponse, Blueprint, CardsResponse, DrawResponse, ModelsConfig, StoryCreated,
+  StorySummary, StyleProfile,
 } from '../types'
 
 const BASE = '/v1'
@@ -98,4 +99,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+
+  getModelsConfig: () => req<ModelsConfig>('/models/config'),
+
+  saveModelsConfig: (body: { provider: string; model: string; base_url?: string; api_key?: string }) =>
+    req<ModelsConfig>('/models/config', { method: 'POST', body: JSON.stringify(body) }),
+
+  clearModelsConfig: () => req<ModelsConfig>('/models/config/clear', { method: 'POST' }),
 }

@@ -77,15 +77,23 @@ uv run uvicorn app.main:app --reload --port 8000
 # 健康检查: GET http://localhost:8000/v1/health
 ```
 
-### 启用真实模型（可选，默认本地 mock）
+### 启用真实模型（无需改文件，页面右上角「⚙ 模型」配置）
 ```bash
-# 在 backend 下创建 .env（已 gitignore，勿提交）：
+# 方式一：页面配置（前端设置面板保存，持久化到 SQLite）
+#   打开 http://localhost:5173 → 右上角「⚙ 模型」→ 填 provider/model/base_url/api_key → 保存
+#   或直接调用接口：
+curl -X POST http://localhost:8000/v1/models/config \
+  -H 'Content-Type: application/json' \
+  -d '{"provider":"deepseek","model":"deepseek-chat","api_key":"sk-xxxx","base_url":"https://api.deepseek.com/v1"}'
+
+# 方式二：环境变量/.env（backend/.env，已 gitignore）
 #   DEFAULT_PROVIDER=deepseek
 #   DEFAULT_MODEL=deepseek-chat
 #   API_KEYS='{"deepseek":"sk-xxxx"}'
 #   BASE_URLS='{"deepseek":"https://api.deepseek.com/v1"}'
-uv run uvicorn app.main:app --reload --port 8000   # 重启后即切真实模型
 ```
+> 配置优先级：页面/接口保存的 Keychain > 环境变量/.env。未配置时自动用本地 Mock。
+> 状态查询：`GET /v1/models/config`（Key 脱敏）；清空：`POST /v1/models/config/clear`。
 
 ### 前端
 ```bash
