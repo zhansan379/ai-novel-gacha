@@ -44,6 +44,15 @@ export interface StoryCreated {
   opening: string
   decision_no: number
   cards: Card[]
+  style_profile_id: string
+}
+
+export interface StyleProfile {
+  id: string
+  name: string
+  description: string
+  temperature: number
+  forbidden: string[]
 }
 
 export interface CardsResponse {
@@ -120,4 +129,5 @@ export interface Blueprint {
   history: HistoryEvent[]
   characters: CharacterCard[]
   outline: OutlineItem[]
+  style?: string
 }

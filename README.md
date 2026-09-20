@@ -108,7 +108,8 @@ npm run dev            # 打开 http://localhost:5173（/v1 自动代理到 :800
 - [x] **持久化：SQLite**（重启不丢；写透 + 内存缓存，接口对服务层不变）
 - [x] **一致性质检 + 去 AI 味 lint**（生成后自动扫描；`post /passages/{no}/lint` 可重扫）
 - [x] **前置构建：世界观 / 历史线 / 角色 / 卷·章大纲**（LLM 强 schema + mock 占位，`GET /blueprint`）
-- [ ] 文风预设（StyleProfile）落地
+- [x] **文风预设 StyleProfile**（金庸武侠/现代都市/玄幻修仙/悬疑克苏鲁/沉稳冷峻，可随某本故事选择）
+- [ ] 一致性关联角色/伏笔状态（当前为通用审稿）
 
 ---
 

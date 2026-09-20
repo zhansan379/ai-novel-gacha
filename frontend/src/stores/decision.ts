@@ -35,13 +35,13 @@ export const useDecisionStore = defineStore('decision', () => {
   const lastConsistency = ref<ConsistencyResult | null>(null)
 
   /** 用灵感开一本新书（后端完成初始卡池 + 开篇）。 */
-  async function create(premise: string) {
+  async function create(premise: string, styleProfileId?: string) {
     const text = premise.trim()
     if (!text) return
     loading.value = true
     error.value = null
     try {
-      const s = await api.createStory(text)
+      const s = await api.createStory(text, styleProfileId)
       storyId.value = s.story_id
       synopsis.value = s.synopsis
       passages.value = [s.opening]

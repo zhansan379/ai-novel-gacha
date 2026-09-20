@@ -3,7 +3,7 @@
  * 类型与《接口契约》一致，远期由 OpenAPI 生成替换。
  */
 import type {
-  ApplyResponse, Blueprint, CardsResponse, DrawResponse, StoryCreated, StorySummary,
+  ApplyResponse, Blueprint, CardsResponse, DrawResponse, StoryCreated, StorySummary, StyleProfile,
 } from '../types'
 
 const BASE = '/v1'
@@ -27,8 +27,16 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  createStory: (premise: string) =>
-    req<StoryCreated>('/stories', { method: 'POST', body: JSON.stringify({ premise }) }),
+  createStory: (premise: string, styleProfileId?: string) =>
+    req<StoryCreated>('/stories', {
+      method: 'POST',
+      body: JSON.stringify({ premise, style_profile_id: styleProfileId }),
+    }),
+
+  getStyles: async () => {
+    const res = await req<{ styles: StyleProfile[] }>('/styles')
+    return res.styles
+  },
 
   getStory: (storyId: string) => req<StorySummary>(`/stories/${storyId}`),
 

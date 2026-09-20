@@ -1,25 +1,30 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
-import type { Blueprint } from '../types'
+import type { Blueprint, StyleProfile } from '../types'
 
 const props = defineProps<{ storyId: string }>()
 const bp = ref<Blueprint | null>(null)
+const styles = ref<StyleProfile[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-onMounted(load)
-async function load() {
+const styleName = (id?: string) => {
+  if (!id) return ''
+  return styles.value.find((s) => s.id === id)?.name ?? id
+}
+
+onMounted(async () => {
   loading.value = true
   error.value = null
   try {
-    bp.value = await api.getBlueprint(props.storyId)
+    ;[bp.value, styles.value] = await Promise.all([api.getBlueprint(props.storyId), api.getStyles()])
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
-}
+})
 </script>
 
 <template>
@@ -27,6 +32,7 @@ async function load() {
     <p v-if="loading" class="hint">加载设定…</p>
     <p v-else-if="error" class="err">{{ error }}</p>
     <template v-else-if="bp">
+      <p v-if="styleName(bp.style)" class="style-tag">文风：{{ styleName(bp.style) }}</p>
       <details class="blk">
         <summary>世界观</summary>
         <p v-if="bp.world.geography" class="row"><b>地理：</b>{{ bp.world.geography }}</p>
@@ -82,8 +88,14 @@ async function load() {
   margin-top: 16px;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  padding: 6px 14px;
+  padding: 6px 14px 10px;
   background: #fcfcfd;
+}
+.style-tag {
+  margin: 8px 0 2px;
+  font-size: 13px;
+  color: #4f46e5;
+  font-weight: 600;
 }
 .blk {
   padding: 8px 0;
