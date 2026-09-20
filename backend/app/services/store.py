@@ -42,6 +42,7 @@ class Story:
     history: list = field(default_factory=list)
     characters: list = field(default_factory=list)
     outline: list = field(default_factory=list)
+    style_profile_id: str = "restrained"
 
     def milestone(self) -> Decision:
         """返回当前待决策节点；不存在则创建。"""

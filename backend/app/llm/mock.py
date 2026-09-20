@@ -113,7 +113,8 @@ class MockLLM:
         self.provider = provider
         self.mode = "mock"
 
-    async def complete(self, *, task: str, system: str, user: str, max_tokens: int = 800) -> str:
+    async def complete(self, *, task: str, system: str, user: str, max_tokens: int = 800,
+                       temperature: float | None = None) -> str:
         if task == "direction":
             return json.dumps(MOCK_DIRECTION_CARDS, ensure_ascii=False)
         if task == "blueprint":

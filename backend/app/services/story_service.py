@@ -10,6 +10,7 @@ from app.schemas import DirectionKind, DirectionSpec
 from app.services.blueprint import BlueprintBuilder
 from app.services.direction import DirectionGenerator
 from app.services.store import Story, StoryStore
+from app.services.styles import get_style
 from app.services.writer import WriterAgent
 
 _INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），
@@ -39,9 +40,10 @@ class StoryService:
         lint, consistency = await self._quality(premise, synopsis, content)
         return {"lint": lint, "consistency": consistency}
 
-    async def create(self, premise: str) -> Story:
+    async def create(self, premise: str, style_profile_id: str | None = None) -> Story:
         synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
-        story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip())
+        story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip(),
+                      style_profile_id=get_style(style_profile_id).id)
 
         # 三段前置：世界观 / 历史线 / 角色 / 卷章大纲
         bp = await self._blueprint.build(premise=premise, synopsis=synopsis)
@@ -54,7 +56,8 @@ class StoryService:
         decision.cards = await self._direction.generate(
             premise=premise, synopsis=synopsis, tail="", decision_no=decision.no,
         )
-        opening = await self._writer.generate(premise=premise, synopsis=synopsis, direction=None)
+        opening = await self._writer.generate(premise=premise, synopsis=synopsis, direction=None,
+                                              style_profile_id=story.style_profile_id)
         lint, consistency = await self._quality(premise, synopsis, opening)
         story.passages.append({"no": 1, "decision_no": None, "content": opening.strip(),
                                "lint": lint, "consistency": consistency})
@@ -86,6 +89,7 @@ class StoryService:
         tail = story.passages[-1]["content"] if story.passages else ""
         prose = await self._writer.generate(
             premise=story.premise, synopsis=story.synopsis, direction=direction_spec, tail=tail,
+            style_profile_id=story.style_profile_id,
         )
         lint, consistency = await self._quality(story.premise, story.synopsis, prose)
         passage = {"no": len(story.passages) + 1, "decision_no": decision_no,

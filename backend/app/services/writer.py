@@ -1,8 +1,9 @@
-"""WriterAgent：基于已确定方向续写正文（含去 AI 味文风约束）。"""
+"""WriterAgent：基于已确定方向续写正文（含去 AI 味 + 文风预设注入）。"""
 from __future__ import annotations
 
 from app.llm import LLMGateway
 from app.schemas import DirectionSpec
+from app.services.styles import StyleProfile, get_style
 
 _WRITER_SYSTEM = """你是长篇小说的正文作者。
 文风要求：
@@ -18,11 +19,18 @@ class WriterAgent:
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
 
+    def _system(self, style: StyleProfile) -> str:
+        forbid = "；".join(f"避免{tag}" for tag in style.forbidden) if style.forbidden else ""
+        style_txt = f"{style.system_prompt}\n{forbid}" if forbid else style.system_prompt
+        return _WRITER_SYSTEM + "\n[文风要求]" + style_txt
+
     async def generate(self, *, premise: str, synopsis: str, direction: DirectionSpec | None,
-                       tail: str = "") -> str:
+                       tail: str = "", style_profile_id: str | None = None) -> str:
+        style = get_style(style_profile_id)
+        system = self._system(style)
         if direction is None:
             return await self._gateway.complete(
-                task="draft", system=_WRITER_SYSTEM,
+                task="draft", system=system, temperature=style.temperature,
                 user=(f"【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："),
             )
         extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
@@ -33,4 +41,4 @@ class WriterAgent:
             f"【已确定方向】{direction.summary}{extra}\n"
             "请按此方向续写正文："
         )
-        return await self._gateway.complete(task="draft", system=_WRITER_SYSTEM, user=user)
+        return await self._gateway.complete(task="draft", system=system, temperature=style.temperature, user=user)

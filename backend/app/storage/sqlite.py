@@ -84,6 +84,7 @@ def _blueprint_json(story: Story) -> str:
     return json.dumps({
         "world": story.world, "history": story.history,
         "characters": story.characters, "outline": story.outline,
+        "style": story.style_profile_id,
     }, ensure_ascii=False)
 
 
@@ -99,6 +100,8 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
         story.history = data.get("history") or []
         story.characters = data.get("characters") or []
         story.outline = data.get("outline") or []
+        if data.get("style"):
+            story.style_profile_id = data["style"]
 
 
 class SQLiteStore:

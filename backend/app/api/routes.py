@@ -33,6 +33,7 @@ _LABEL_TO_KIND: dict[CardLabel, DirectionKind] = {
 # ---------- 请求/响应模型 ----------
 class CreateStoryRequest(BaseModel):
     premise: str = Field(min_length=1, max_length=200)
+    style_profile_id: str | None = None
 
 
 class AppliesDecision(BaseModel):
@@ -52,6 +53,7 @@ class StoryCreated(BaseModel):
     opening: str
     decision_no: int
     cards: list[Card]
+    style_profile_id: str
 
 
 class CardsResponse(BaseModel):
@@ -87,6 +89,7 @@ class StorySummary(BaseModel):
     synopsis: str
     passages: list[str]
     next_decision_no: int
+    style_profile_id: str = "restrained"
 
 
 # ---------- 工具 ----------
@@ -114,11 +117,18 @@ def _decision_of(story: Story, no: int) -> object:
 # ---------- 端点 ----------
 @router.post("/stories", response_model=StoryCreated, status_code=201, tags=["story"])
 async def create_story(body: CreateStoryRequest):
-    story = await registry.story_service.create(body.premise)
+    story = await registry.story_service.create(body.premise, style_profile_id=body.style_profile_id)
     d = _decision_of(story, 1)
     opening = story.passages[0]["content"]
     return StoryCreated(story_id=story.id, synopsis=story.synopsis, opening=opening,
-                        decision_no=d.no, cards=d.cards)
+                        decision_no=d.no, cards=d.cards,
+                        style_profile_id=story.style_profile_id)
+
+
+@router.get("/styles", tags=["story"])
+async def list_styles():
+    from app.services.styles import list_styles as _list
+    return {"styles": _list()}
 
 
 @router.get("/stories/{sid}", response_model=StorySummary, tags=["story"])
@@ -126,7 +136,8 @@ async def get_story(sid: str = Path(...)):
     story = decision_path(sid)
     return StorySummary(story_id=story.id, premise=story.premise, synopsis=story.synopsis,
                         passages=[p["content"] for p in story.passages],
-                        next_decision_no=story.next_decision_no)
+                        next_decision_no=story.next_decision_no,
+                        style_profile_id=story.style_profile_id)
 
 
 @router.get("/stories/{sid}/blueprint", tags=["story"])
@@ -139,6 +150,7 @@ async def get_blueprint(sid: str = Path(...)):
         "history": story.history,
         "characters": story.characters,
         "outline": story.outline,
+        "style": story.style_profile_id,
     }
 
 
