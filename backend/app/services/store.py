@@ -43,6 +43,8 @@ class Story:
     characters: list = field(default_factory=list)
     outline: list = field(default_factory=list)
     style_profile_id: str = "restrained"
+    # 伏笔账本：[{id, text, origin, status: planted|advanced|paid_off}]
+    foreshadows: list = field(default_factory=list)
 
     def milestone(self) -> Decision:
         """返回当前待决策节点；不存在则创建。"""

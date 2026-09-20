@@ -31,9 +31,12 @@ class ConsistencyChecker:
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
 
-    async def check(self, *, premise: str, synopsis: str, passage: str) -> dict:
+    async def check(self, *, premise: str, synopsis: str, passage: str,
+                    facts: list[str] | None = None) -> dict:
+        facts_txt = "\n".join(f"- {f}" for f in (facts or [])) or "（无既定事实清单）"
         user = (
             f"【已有设定】前提：{premise}\n简介：{synopsis}\n"
+            f"【设定事实清单（须遵守）】\n{facts_txt}\n"
             f"【新生成正文】{passage}\n请输出 JSON："
         )
         try:

@@ -151,7 +151,15 @@ async def get_blueprint(sid: str = Path(...)):
         "characters": story.characters,
         "outline": story.outline,
         "style": story.style_profile_id,
+        "foreshadows": story.foreshadows,
     }
+
+
+@router.get("/stories/{sid}/foreshadows", tags=["story"])
+async def get_foreshadows(sid: str = Path(...)):
+    """伏笔账本：已埋设 / 推进中 / 已兑现。"""
+    story = decision_path(sid)
+    return {"story_id": story.id, "foreshadows": story.foreshadows}
 
 
 @router.get("/stories/{sid}/decisions/{no}/cards", response_model=CardsResponse, tags=["decision"])
@@ -226,6 +234,7 @@ async def relint_passage(sid: str, np: int):
     if not (1 <= np <= len(story.passages)):
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": f"段落不存在: {np}"})
     p = story.passages[np - 1]
+    from app.services.facts import build_facts
     return await registry.story_service.review(
-        premise=story.premise, synopsis=story.synopsis, content=p["content"],
+        premise=story.premise, synopsis=story.synopsis, content=p["content"], facts=build_facts(story),
     )

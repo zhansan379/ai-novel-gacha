@@ -9,6 +9,7 @@ from app.llm import LLMGateway
 from app.schemas import DirectionKind, DirectionSpec
 from app.services.blueprint import BlueprintBuilder
 from app.services.direction import DirectionGenerator
+from app.services.facts import build_facts, init_foreshadows
 from app.services.store import Story, StoryStore
 from app.services.styles import get_style
 from app.services.writer import WriterAgent
@@ -27,17 +28,19 @@ class StoryService:
         self._blueprint = BlueprintBuilder(gateway)
         self._consistency = ConsistencyChecker(gateway)
 
-    async def _quality(self, premise: str, synopsis: str, content: str) -> tuple[dict, dict]:
-        """生成后的质检：去 AI 味 lint + 一致性校验。"""
+    async def _quality(self, premise: str, synopsis: str, content: str,
+                       facts: list[str] | None = None) -> tuple[dict, dict]:
+        """生成后的质检：去 AI 味 lint + 基于设定事实的一致性命。"""
         lint = deslop_scan(content)
         consistency = await self._consistency.check(
-            premise=premise, synopsis=synopsis, passage=content,
+            premise=premise, synopsis=synopsis, passage=content, facts=facts,
         )
         return lint, consistency
 
-    async def review(self, *, premise: str, synopsis: str, content: str) -> dict:
+    async def review(self, *, premise: str, synopsis: str, content: str,
+                     facts: list[str] | None = None) -> dict:
         """公开质检入口（供重扫端点使用）。"""
-        lint, consistency = await self._quality(premise, synopsis, content)
+        lint, consistency = await self._quality(premise, synopsis, content, facts=facts)
         return {"lint": lint, "consistency": consistency}
 
     async def create(self, premise: str, style_profile_id: str | None = None) -> Story:
@@ -51,6 +54,7 @@ class StoryService:
         story.history = bp.get("history") or []
         story.characters = bp.get("characters") or []
         story.outline = bp.get("outline") or []
+        story.foreshadows = init_foreshadows(story.outline)
 
         decision = story.milestone()
         decision.cards = await self._direction.generate(
@@ -58,7 +62,7 @@ class StoryService:
         )
         opening = await self._writer.generate(premise=premise, synopsis=synopsis, direction=None,
                                               style_profile_id=story.style_profile_id)
-        lint, consistency = await self._quality(premise, synopsis, opening)
+        lint, consistency = await self._quality(premise, synopsis, opening, facts=build_facts(story))
         story.passages.append({"no": 1, "decision_no": None, "content": opening.strip(),
                                "lint": lint, "consistency": consistency})
         self._store.save(story)
@@ -91,7 +95,8 @@ class StoryService:
             premise=story.premise, synopsis=story.synopsis, direction=direction_spec, tail=tail,
             style_profile_id=story.style_profile_id,
         )
-        lint, consistency = await self._quality(story.premise, story.synopsis, prose)
+        lint, consistency = await self._quality(story.premise, story.synopsis, prose,
+                                            facts=build_facts(story))
         passage = {"no": len(story.passages) + 1, "decision_no": decision_no,
                    "content": prose.strip(), "lint": lint, "consistency": consistency}
         story.passages.append(passage)
