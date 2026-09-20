@@ -36,8 +36,8 @@ const settingsOpen = ref(false)
   gap: 12px;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: saturate(1.4) blur(8px);
+  background: rgba(253, 250, 242, 0.85);
+  backdrop-filter: saturate(1.2) blur(8px);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -48,7 +48,7 @@ const settingsOpen = ref(false)
   gap: 9px;
   font-weight: 800;
   font-size: 18px;
-  color: #111827;
+  color: var(--text);
   text-decoration: none;
   letter-spacing: 0.3px;
 }
@@ -65,8 +65,8 @@ const settingsOpen = ref(false)
   align-items: center;
   gap: 6px;
   border: 1px solid var(--border);
-  background: #fff;
-  color: #4b5563;
+  background: var(--bg-card);
+  color: var(--muted);
   padding: 6px 12px;
   border-radius: 999px;
   cursor: pointer;

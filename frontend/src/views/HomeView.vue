@@ -114,7 +114,7 @@ async function createStory() {
   font-size: 34px;
   margin: 0 0 12px;
   letter-spacing: 1px;
-  color: #111827;
+  color: #3a3124;
   font-weight: 800;
 }
 /* 签名细节：关键短语下划线高亮，单一强调色 */
@@ -127,7 +127,7 @@ async function createStory() {
 .sub {
   max-width: 640px;
   margin: 0 auto 26px;
-  color: #4b5563;
+  color: var(--muted);
 }
 .cta {
   display: flex;
@@ -140,12 +140,13 @@ async function createStory() {
   border: 1px solid var(--border);
   border-radius: 10px;
   font-size: 15px;
+  background: var(--bg-card);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .premise-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.16);
+  box-shadow: 0 0 0 3px rgba(138, 106, 59, 0.18);
 }
 .btn {
   padding: 12px 26px;
@@ -155,13 +156,13 @@ async function createStory() {
 }
 .btn.primary {
   background: var(--accent);
-  color: #fff;
+  color: #fffdf6;
   font-weight: 600;
-  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.28);
+  box-shadow: 0 6px 18px rgba(138, 106, 59, 0.3);
   transition: background-color 0.15s, transform 0.15s, box-shadow 0.2s;
 }
 .btn.primary:hover:not(:disabled) {
-  background: #4338ca;
+  background: #75572f;
   transform: translateY(-2px);
 }
 .btn.primary:active:not(:disabled) {
@@ -177,30 +178,30 @@ async function createStory() {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #6b7280;
+  color: var(--muted);
   font-size: 14px;
 }
 .style-select {
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--bg-card);
 }
 .style-desc {
   max-width: 420px;
   text-align: left;
-  color: #9ca3af;
+  color: #a89782;
   font-size: 13px;
 }
 .error {
-  color: #dc2626;
+  color: #b0452e;
 }
 .opening {
   margin-top: 18px;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #6b7280;
+  color: var(--muted);
   font-size: 14px;
   min-height: 22px;
 }
@@ -217,7 +218,7 @@ async function createStory() {
   to { transform: rotate(360deg); }
 }
 .phase {
-  color: #111827;
+  color: #3a3124;
   font-weight: 500;
 }
 .dots i {
@@ -232,7 +233,7 @@ async function createStory() {
 }
 .note {
   margin-top: 34px;
-  color: #9ca3af;
+  color: #a89782;
   font-size: 13px;
 }
 @media (max-width: 640px) {

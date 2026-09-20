@@ -109,16 +109,16 @@ function kindLabel(kind: string) {
 
 <style scoped>
 .decision-panel {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 18px;
-  background: #fafafa;
+  background: var(--bg-card);
 }
 .panel-title {
   margin: 0 0 12px;
 }
 .error {
-  color: #dc2626;
+  color: #b0452e;
   font-size: 13px;
   margin: 0 0 10px;
 }
@@ -129,17 +129,18 @@ function kindLabel(kind: string) {
 }
 .tab {
   padding: 6px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--bg-card);
   cursor: pointer;
+  color: var(--muted);
 }
 .tab.active {
   background: var(--accent);
-  color: #fff;
+  color: #fffdf6;
 }
 .hint {
-  color: #6b7280;
+  color: var(--muted);
   font-size: 13px;
   margin-top: 0;
 }
@@ -149,11 +150,11 @@ function kindLabel(kind: string) {
   gap: 14px;
 }
 .card {
-  border: 2px solid #d1d5db;
+  border: 2px solid #d1cbb8;
   border-radius: 10px;
   padding: 14px;
   text-align: left;
-  background: #fff;
+  background: #fffdf6;
   position: relative;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.18s ease;
@@ -216,11 +217,11 @@ function kindLabel(kind: string) {
 }
 .btn.primary {
   background: var(--accent);
-  color: #fff;
+  color: #fffdf6;
   transition: background-color 0.15s, transform 0.15s;
 }
 .btn.primary:hover:not(:disabled) {
-  background: #4338ca;
+  background: #75572f;
   transform: translateY(-2px);
 }
 .btn.big {
@@ -233,12 +234,12 @@ function kindLabel(kind: string) {
   cursor: not-allowed;
 }
 .btn.ghost {
-  background: #fff;
-  color: #6b7280;
-  border: 1px solid #d1d5db;
+  background: var(--bg-card);
+  color: var(--muted);
+  border: 1px solid var(--border);
 }
 .btn.ghost:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: var(--accent-soft);
 }
 .applied-note {
   color: #059669;
@@ -250,8 +251,8 @@ function kindLabel(kind: string) {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: #f2efe4;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
   margin: 0 0 14px;
@@ -289,8 +290,9 @@ textarea {
   width: 100%;
   box-sizing: border-box;
   padding: 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-family: inherit;
+  background: #fffdf6;
 }
 </style>

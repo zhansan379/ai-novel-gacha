@@ -110,10 +110,10 @@ onMounted(async () => {
 <style scoped>
 .blueprint {
   margin-top: 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 6px 14px 10px;
-  background: #fcfcfd;
+  background: var(--bg-card);
 }
 .style-tag {
   margin: 8px 0 2px;
