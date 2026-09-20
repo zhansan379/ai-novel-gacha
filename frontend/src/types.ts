@@ -58,6 +58,8 @@ export interface DrawResponse {
   card: Card
   direction_spec: DirectionSpec
   passage: string
+  lint: LintIssue[]
+  consistency: ConsistencyResult
   next_decision_no: number
 }
 
@@ -66,7 +68,29 @@ export interface ApplyResponse {
   mode: 'gacha_pick' | 'free'
   direction_spec: DirectionSpec
   passage: string
+  lint: LintIssue[]
+  consistency: ConsistencyResult
   next_decision_no: number
+}
+
+export interface LintIssue {
+  rule: string
+  severity: 'block' | 'warn'
+  fragment: string
+  reason: string
+  suggestion: string
+}
+
+export interface ConsistencyIssue {
+  type: string
+  severity: string
+  fragment?: string
+  reason: string
+}
+
+export interface ConsistencyResult {
+  passed: boolean
+  issues: ConsistencyIssue[]
 }
 
 export interface StorySummary {

@@ -42,6 +42,16 @@ function kindLabel(kind: string) {
         <p>{{ store.lastAction.card.content }}</p>
       </div>
       <p v-else class="applied-note">已按你的自由输入推进剧情。</p>
+
+      <!-- 质检提示条（非入侵） -->
+      <div v-if="store.lastConsistency && !store.lastConsistency.passed" class="quality warn">
+        一致性：{{ store.lastConsistency.issues.length }} 处待确认
+      </div>
+      <div v-else-if="store.lastLint.some((i) => i.severity === 'block')" class="quality warn">
+        去 AI 味：{{ store.lastLint.filter((i) => i.severity === 'block').length }} 处模板感需润色
+      </div>
+      <div v-else class="quality ok">质检通过（无 AI 味阻断项 · 一致性无冲突）</div>
+
       <button class="btn primary big" :disabled="store.loading" @click="store.next">
         {{ store.loading ? '生成中…' : '进入下一分歧' }}
       </button>
@@ -227,6 +237,20 @@ function kindLabel(kind: string) {
   color: #059669;
   font-weight: 600;
   margin: 6px 0;
+}
+.quality {
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin: 4px 0;
+}
+.quality.ok {
+  color: #059669;
+  background: #ecfdf5;
+}
+.quality.warn {
+  color: #b45309;
+  background: #fffbeb;
 }
 textarea {
   width: 100%;

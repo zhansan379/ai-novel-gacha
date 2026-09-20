@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '../api/client'
-import type { Card, DecisionMode } from '../types'
+import type { Card, ConsistencyResult, DecisionMode, LintIssue } from '../types'
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -31,6 +31,8 @@ export const useDecisionStore = defineStore('decision', () => {
   const error = ref<string | null>(null)
   const lastAction = ref<ActionResult | null>(null)
   const nextDecisionNo = ref<number | null>(null)
+  const lastLint = ref<LintIssue[]>([])
+  const lastConsistency = ref<ConsistencyResult | null>(null)
 
   /** 用灵感开一本新书（后端完成初始卡池 + 开篇）。 */
   async function create(premise: string) {
@@ -82,6 +84,8 @@ export const useDecisionStore = defineStore('decision', () => {
     customInstruction.value = ''
     lastAction.value = null
     nextDecisionNo.value = null
+    lastLint.value = []
+    lastConsistency.value = null
     error.value = null
   }
 
@@ -94,6 +98,8 @@ export const useDecisionStore = defineStore('decision', () => {
       const res = await api.blindDraw(storyId.value, decisionNo.value)
       passages.value = [...passages.value, res.passage]
       lastAction.value = { kind: 'draw', card: res.card, passage: res.passage }
+      lastLint.value = res.lint
+      lastConsistency.value = res.consistency
       nextDecisionNo.value = res.next_decision_no
       cards.value = []
       decisionNo.value = null
@@ -124,6 +130,8 @@ export const useDecisionStore = defineStore('decision', () => {
       const res = await api.apply(storyId.value, decisionNo.value, body)
       passages.value = [...passages.value, res.passage]
       lastAction.value = { kind: mode.value === 'free' ? 'free' : 'pick', card: revealed.value, passage: res.passage }
+      lastLint.value = res.lint
+      lastConsistency.value = res.consistency
       nextDecisionNo.value = res.next_decision_no
       cards.value = []
       decisionNo.value = null
@@ -156,11 +164,12 @@ export const useDecisionStore = defineStore('decision', () => {
     decisionNo.value = null; cards.value = []; revealed.value = null
     customInstruction.value = ''; loading.value = false; error.value = null
     lastAction.value = null; nextDecisionNo.value = null
+    lastLint.value = []; lastConsistency.value = null
   }
 
   return {
     storyId, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
-    loading, error, lastAction, nextDecisionNo,
+    loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency,
     create, load, draw, apply, next, pickLocal, reset,
   }
 })

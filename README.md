@@ -106,8 +106,8 @@ npm run dev            # 打开 http://localhost:5173（/v1 自动代理到 :800
 - [x] DirectionGenerator：分歧点生成真实卡池 + WriterAgent 正文生成
 - [x] **决策闭环 API + 前端接入**（抽卡 → 生成正文 跑通）
 - [x] **持久化：SQLite**（重启不丢；写透 + 内存缓存，接口对服务层不变）
-- [ ] 一致性校验（角色/伏笔/时间线回归）
-- [ ] 去 AI 味 lint + 文风预设（StyleProfile）
+- [x] **一致性质检 + 去 AI 味 lint**（生成后自动扫描；`post /passages/{no}/lint` 可重扫）
+- [ ] 文风预设（StyleProfile）落地
 - [ ] 前置构建：世界观 / 历史线 / 大纲（含 premise 公式与三幕模板）
 
 ---
