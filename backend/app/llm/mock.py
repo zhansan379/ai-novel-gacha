@@ -91,5 +91,5 @@ class MockLLM:
         idx = abs(hash(hint)) % len(_DRAFT_TEMPLATES)
         prose = _DRAFT_TEMPLATES[idx]
         if task == "consistency":
-            return "默认通过：未发现明显一致性冲突。"
+            return '{"passed": true, "issues": []}'
         return prose + f"\n\n（AI 正文占位：基于　「{hint}」　生成，接入真实模型后替换）"

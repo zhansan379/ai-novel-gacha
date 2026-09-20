@@ -85,3 +85,15 @@ def test_apply_missing_both_rejected():
 def test_unknown_story_404():
     r = _client().get("/v1/stories/nope")
     assert r.status_code == 404
+
+
+def test_quality_fields_in_draw_and_relint_endpoint():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "质检测试"}).json()["story_id"]
+    drawn = c.post(f"/v1/stories/{sid}/decisions/1/gacha").json()
+    assert "lint" in drawn and isinstance(drawn["lint"], list)
+    assert "consistency" in drawn and drawn["consistency"]["passed"] is True
+
+    rel = c.post(f"/v1/stories/{sid}/passages/1/lint")
+    assert rel.status_code == 200
+    assert "lint" in rel.json() and "consistency" in rel.json()

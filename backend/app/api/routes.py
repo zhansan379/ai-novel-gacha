@@ -66,6 +66,8 @@ class DrawResponse(BaseModel):
     card: Card
     direction_spec: DirectionSpec
     passage: str
+    lint: list[dict] = []
+    consistency: dict = {"passed": True, "issues": []}
     next_decision_no: int
 
 
@@ -74,6 +76,8 @@ class ApplyResponse(BaseModel):
     mode: Literal["gacha_pick", "free"]
     direction_spec: DirectionSpec
     passage: str
+    lint: list[dict] = []
+    consistency: dict = {"passed": True, "issues": []}
     next_decision_no: int
 
 
@@ -158,7 +162,9 @@ async def blind_draw(sid: str, no: int = Path(..., ge=1)):
     except DecisionLocked:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
     return DrawResponse(decision_no=no, mode="gacha_draw", card=card,
-                        direction_spec=direction, passage=passage,
+                        direction_spec=direction,
+                        passage=passage["content"], lint=passage.get("lint", []),
+                        consistency=passage.get("consistency", {"passed": True, "issues": []}),
                         next_decision_no=story.next_decision_no)
 
 
@@ -182,5 +188,19 @@ async def apply_decision(sid: str, no: int, body: AppliesDecision):
         )
     except DecisionLocked:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
-    return ApplyResponse(decision_no=no, mode=mode, direction_spec=direction, passage=passage,
+    return ApplyResponse(decision_no=no, mode=mode, direction_spec=direction,
+                         passage=passage["content"], lint=passage.get("lint", []),
+                         consistency=passage.get("consistency", {"passed": True, "issues": []}),
                          next_decision_no=story.next_decision_no)
+
+
+@router.post("/stories/{sid}/passages/{np}/lint", response_model=dict, tags=["quality"])
+async def relint_passage(sid: str, np: int):
+    """对某段已生成正文重新做去 AI 味 + 一致性质检。"""
+    story = decision_path(sid)
+    if not (1 <= np <= len(story.passages)):
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": f"段落不存在: {np}"})
+    p = story.passages[np - 1]
+    return await registry.story_service.review(
+        premise=story.premise, synopsis=story.synopsis, content=p["content"],
+    )
