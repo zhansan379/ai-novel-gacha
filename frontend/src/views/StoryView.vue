@@ -33,6 +33,11 @@ onMounted(async () => {
         <article v-for="(p, i) in store.passages" :key="i" class="passage">
           <p>{{ p }}</p>
         </article>
+        <div v-if="store.streamingText || (store.loading && !store.lastAction)" class="streaming">
+          <span v-if="store.streamingText" class="caret">{{ store.streamingText }}</span>
+          <span v-else class="hint">正文生成中…</span>
+        </div>
+        <p v-if="store.error" class="error">{{ store.error }}</p>
       </div>
       <DecisionPanel />
     </div>
@@ -66,6 +71,29 @@ onMounted(async () => {
   text-indent: 2em;
   margin-bottom: 14px;
   white-space: pre-wrap;
+}
+.streaming {
+  line-height: 1.9;
+  color: #4b5563;
+  text-indent: 2em;
+  white-space: pre-wrap;
+  border-left: 3px solid #10b981;
+  padding-left: 10px;
+  min-height: 2em;
+}
+.streaming .caret::after {
+  content: '▍';
+  color: #10b981;
+  animation: blink 1s steps(2) infinite;
+}
+.streaming .hint {
+  color: #9ca3af;
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+.error {
+  color: #dc2626;
 }
 @media (max-width: 760px) {
   .layout {

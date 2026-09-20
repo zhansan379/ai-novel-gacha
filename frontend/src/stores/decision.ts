@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { api } from '../api/client'
+import { api, consumeSSE } from '../api/client'
 import type { Card, ConsistencyResult, DecisionMode, LintIssue } from '../types'
 
 function errMsg(e: unknown): string {
@@ -33,6 +33,7 @@ export const useDecisionStore = defineStore('decision', () => {
   const nextDecisionNo = ref<number | null>(null)
   const lastLint = ref<LintIssue[]>([])
   const lastConsistency = ref<ConsistencyResult | null>(null)
+  const streamingText = ref('')
 
   /** 用灵感开一本新书（后端完成初始卡池 + 开篇）。 */
   async function create(premise: string, styleProfileId?: string) {
@@ -89,28 +90,13 @@ export const useDecisionStore = defineStore('decision', () => {
     error.value = null
   }
 
-  /** 盲抽一次即完成抽取 + 生成正文，并进入"下一分歧"待命。 */
+  /** 盲抽：服务端随机揭晓并流式生成正文。 */
   async function draw() {
     if (!storyId.value || decisionNo.value == null) return
-    loading.value = true
-    error.value = null
-    try {
-      const res = await api.blindDraw(storyId.value, decisionNo.value)
-      passages.value = [...passages.value, res.passage]
-      lastAction.value = { kind: 'draw', card: res.card, passage: res.passage }
-      lastLint.value = res.lint
-      lastConsistency.value = res.consistency
-      nextDecisionNo.value = res.next_decision_no
-      cards.value = []
-      decisionNo.value = null
-    } catch (e) {
-      error.value = errMsg(e)
-    } finally {
-      loading.value = false
-    }
+    await _stream({ draw: true })
   }
 
-  /** 采用当前选择（明选卡 / 自由输入指令），并进入"下一分歧"待命。 */
+  /** 采用当前选择（明选卡 / 自由输入指令），流式生成正文。 */
   async function apply() {
     if (!storyId.value || decisionNo.value == null) return
     if (mode.value === 'gacha_pick' && !revealed.value) {
@@ -121,24 +107,59 @@ export const useDecisionStore = defineStore('decision', () => {
       error.value = '请输入剧情指令'
       return
     }
+    const body = mode.value === 'free'
+      ? { custom_instruction: customInstruction.value.trim() }
+      : { card_id: revealed.value!.card_id }
+    await _stream(body)
+  }
+
+  /** 调用流式端点：读 SSE 事件，逐 token 更新 streamingText，结束时落库并进入下一分歧。 */
+  async function _stream(body: { draw?: boolean; card_id?: string; custom_instruction?: string }) {
+    if (!storyId.value || decisionNo.value == null) return
+    const no = decisionNo.value
     loading.value = true
     error.value = null
+    streamingText.value = ''
+    let revealedCard: Card | null = null
     try {
-      const body = mode.value === 'free'
-        ? { custom_instruction: customInstruction.value.trim() }
-        : { card_id: revealed.value!.card_id }
-      const res = await api.apply(storyId.value, decisionNo.value, body)
-      passages.value = [...passages.value, res.passage]
-      lastAction.value = { kind: mode.value === 'free' ? 'free' : 'pick', card: revealed.value, passage: res.passage }
-      lastLint.value = res.lint
-      lastConsistency.value = res.consistency
-      nextDecisionNo.value = res.next_decision_no
-      cards.value = []
-      decisionNo.value = null
+      const res = await api.streamDecision(storyId.value, no, body)
+      if (!res.ok || !res.body) {
+        let msg = `请求失败 (${res.status})`
+        try {
+          const j = await res.json()
+          msg = j?.detail?.message ?? msg
+        } catch { /* ignore */ }
+        throw new Error(msg)
+      }
+      await consumeSSE(res, (ev) => {
+        if (ev.event === 'passage_start') {
+          const d = ev.data as { card?: Card }
+          revealedCard = d.card ?? null
+        } else if (ev.event === 'delta') {
+          streamingText.value += (ev.data as { text: string }).text
+        } else if (ev.event === 'passage_end') {
+          const d = ev.data as {
+            passage: string; lint: LintIssue[]; consistency: ConsistencyResult; next_decision_no: number
+          }
+          passages.value = [...passages.value, d.passage]
+          lastAction.value = {
+            kind: body.draw ? 'draw' : (body.card_id ? 'pick' : 'free'),
+            card: revealedCard,
+            passage: d.passage,
+          }
+          lastLint.value = d.lint ?? []
+          lastConsistency.value = d.consistency ?? null
+          nextDecisionNo.value = d.next_decision_no
+          cards.value = []
+          decisionNo.value = null
+          streamingText.value = ''
+        }
+      })
     } catch (e) {
       error.value = errMsg(e)
     } finally {
       loading.value = false
+      streamingText.value = ''
     }
   }
 
@@ -165,11 +186,12 @@ export const useDecisionStore = defineStore('decision', () => {
     customInstruction.value = ''; loading.value = false; error.value = null
     lastAction.value = null; nextDecisionNo.value = null
     lastLint.value = []; lastConsistency.value = null
+    streamingText.value = ''
   }
 
   return {
     storyId, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
-    loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency,
+    loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
     create, load, draw, apply, next, pickLocal, reset,
   }
 })

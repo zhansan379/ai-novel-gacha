@@ -110,6 +110,7 @@ npm run dev            # 打开 http://localhost:5173（/v1 自动代理到 :800
 - [x] **前置构建：世界观 / 历史线 / 角色 / 卷·章大纲**（LLM 强 schema + mock 占位，`GET /blueprint`）
 - [x] **文风预设 StyleProfile**（金庸武侠/现代都市/玄幻修仙/悬疑克苏鲁/沉稳冷峻，可随某本故事选择）
 - [x] **一致性关联角色/伏笔状态**（结构化设定事实清单注入校验 + 伏笔账本，`GET /foreshadows`）
+- [x] **正文 SSE 流式输出**（`POST /decisions/{no}/stream`，逐 token 增量显示；真机走流式、mock 按块）
 
 ---
 
