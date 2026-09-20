@@ -333,13 +333,15 @@ def test_undo_with_nothing_returns_409(client):
 def test_stream_mid_generation_failure_is_graceful_and_rolls_back(monkeypatch, client):
     sid = _create(client, "雾海记忆城")["story_id"]
 
-    async def fail_direction(self, *, task, system, user, max_tokens=None, temperature=None):
-        if task == "direction":
-            raise ModelError("命运卡响应不符合 schema")
-        return await _stub_complete(self, task=task, system=system, user=user,
-                                    max_tokens=max_tokens, temperature=temperature)
+    # 让"正文流"(SSE 的 draft 段)中途抛错，验证流式生成失败被优雅捕获并回滚。
+    # （卡池生成已移出正文流，因此用正文流本身作为失败源，保证"中途失败→优雅收尾→可重试"）
+    def fail_stream(self, *, task, system, user, max_tokens=None, temperature=None):
+        async def broken():
+            raise ModelError("正文生成中途失败")
+            yield "".encode()  # noqa: PIE790 永不可达；保证这是个 async generator
+        return broken()
 
-    monkeypatch.setattr(LLMGateway, "complete", fail_direction)
+    monkeypatch.setattr(LLMGateway, "stream", fail_stream)
     r = client.post(f"/v1/stories/{sid}/decisions/1/stream", json={"draw": True})
     assert r.status_code == 200
     # 已是 SSE 流，不应崩溃；且发出 passage_error 而非无声截断
@@ -349,4 +351,5 @@ def test_stream_mid_generation_failure_is_graceful_and_rolls_back(monkeypatch, c
 
     # 决策未被锁死：恢复好桩后重试不再 409
     monkeypatch.setattr(LLMGateway, "complete", _stub_complete)
+    monkeypatch.setattr(LLMGateway, "stream", _stub_stream)
     assert client.post(f"/v1/stories/{sid}/decisions/1/gacha").status_code == 200

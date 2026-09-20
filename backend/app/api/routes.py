@@ -359,13 +359,9 @@ async def get_foreshadows(sid: str = Path(...)):
 async def get_cards(sid: str, no: int = Path(..., ge=1)):
     story = decision_path(sid)
     d = _decision_of(story, no)
-    if not d.cards:  # 该节点卡池尚未生成 → 现场生成
-        d.cards = await registry._direction.generate(  # noqa: SLF001
-            premise=story.premise, synopsis=story.synopsis,
-            tail=(story.passages[-1]["content"] if story.passages else ""), decision_no=no,
-        )
-        registry.store.save(story)
-    return CardsResponse(decision_no=no, pool_version=d.pool_version, cards=d.cards)
+    # 卡池惰性生成（带当前叙事上下文/上拍悬念），幂等；不在正文流里预生成下一卡池
+    cards = await registry.story_service.ensure_cards(story, no)
+    return CardsResponse(decision_no=no, pool_version=d.pool_version, cards=cards)
 
 
 @router.post("/stories/{sid}/decisions/{no}/gacha", response_model=DrawResponse, tags=["decision"])
@@ -374,11 +370,7 @@ async def blind_draw(sid: str, no: int = Path(..., ge=1)):
     d = _decision_of(story, no)
     if d.applied:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
-    if not d.cards:
-        d.cards = await registry._direction.generate(  # noqa: SLF001
-            premise=story.premise, synopsis=story.synopsis,
-            tail=(story.passages[-1]["content"] if story.passages else ""), decision_no=no,
-        )
+    d.cards = await registry.story_service.ensure_cards(story, no)
     card = _gacha.draw(CardPool(decision_no=no, pool_version=d.pool_version, cards=d.cards))
     direction = _card_spec(card)
     try:
@@ -447,11 +439,7 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
         d = _decision_of(story, no)
         if d.applied:
             raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
-        if not d.cards:
-            d.cards = await registry._direction.generate(  # noqa: SLF001
-                premise=story.premise, synopsis=story.synopsis,
-                tail=(story.passages[-1]["content"] if story.passages else ""), decision_no=no,
-            )
+        d.cards = await registry.story_service.ensure_cards(story, no)
         card = _gacha.draw(CardPool(decision_no=no, pool_version=d.pool_version, cards=d.cards))
         direction, mode, card_id = _card_spec(card), "gacha_draw", card.card_id
     elif body.card_id is not None:

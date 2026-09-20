@@ -9,7 +9,7 @@ from app.consistency.checker import ConsistencyChecker
 from app.config import settings
 from app.deslop import scan as deslop_scan
 from app.llm import LLMGateway
-from app.schemas import DirectionKind, DirectionSpec
+from app.schemas import Card, DirectionKind, DirectionSpec
 from app.services.blueprint import BlueprintBuilder
 from app.services.direction import DirectionGenerator
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
@@ -66,6 +66,8 @@ class StoryService:
         self._grounding = grounding or GroundingService()
         self._profiler = profiler
         self._web = getattr(self._grounding, "_web", None)
+        # 惰性卡池生成的并发锁：按 (story.id, no) 隔离，避免并发请求重复生成同一节点卡池
+        self._card_locks: dict[tuple[str, int], asyncio.Lock] = {}
 
     def _append_timeline(self, story: Story, decision, no: int, content: str) -> None:
         """把刚生成的这一剧情拍追加进时间线（复盘账本），不触碰世界历史线 world.history。"""
@@ -426,12 +428,9 @@ class StoryService:
         self._append_timeline(story, decision, passage["no"], prose.strip())
         try:
             await self._advance_state(story, direction_spec, prose.strip())
-            # 预生成下一分歧点的卡池（基于推进后的状态）
-            next_d = story.advance()
-            next_d.cards = await self._direction.generate(
-                premise=story.premise, synopsis=story.synopsis, tail=prose, decision_no=next_d.no,
-                context=build_narrative_context(story), carryover=_pending_hook(direction_spec),
-            )
+            # 仅推进到下一分歧节点，卡池留空由 GET /cards 惰性生成（不在正文路径里预生成，
+            # 避免"正文输出完仍在抽卡中"。见 ensure_cards）
+            story.advance()
             self._store.save(story)
         except Exception:
             self._rollback_decision(story, decision, decision_no)
@@ -489,11 +488,9 @@ class StoryService:
             self._append_timeline(story, decision, passage["no"], content)
             await self._advance_state(story, direction_spec, content)
 
-            next_d = story.advance()
-            next_d.cards = await self._direction.generate(
-                premise=story.premise, synopsis=story.synopsis, tail=content, decision_no=next_d.no,
-                context=build_narrative_context(story), carryover=_pending_hook(direction_spec),
-            )
+            # 仅推进到下一分歧节点，卡池留空由前端 loadCards→GET /cards 惰性生成，
+            # 让正文一输出完就能提交并关按钮，不再被下一卡池生成阻塞。
+            story.advance()
             self._store.save(story)
         except Exception as exc:
             # 正文已流式发出但收尾失败：回滚该决策，并抛出一个干净的 SSE 错误事件，
@@ -506,3 +503,33 @@ class StoryService:
     @staticmethod
     def spec_from_instruction(text: str) -> DirectionSpec:
         return DirectionSpec(kind=DirectionKind.CUSTOM, summary=text.strip()[:200], risk_flag=True)
+
+    def _card_lock(self, story_id: str, no: int) -> asyncio.Lock:
+        key = (story_id, no)
+        lock = self._card_locks.get(key)
+        if lock is None:
+            lock = self._card_locks[key] = asyncio.Lock()
+        return lock
+
+    async def ensure_cards(self, story: Story, no: int) -> list[Card]:
+        """取某决策节点的卡池；为空时惰性生成并落库（带当前叙事上下文与上一拍悬念）。
+
+        幂等：已有卡片直接返回；用 per-(story,no) 锁防并发重复生成。
+        这是卡池获取的唯一入口：不在正文流里预生成下一卡池，避免"正文输出完仍在抽卡中"。
+        """
+        async with self._card_lock(story.id, no):
+            decision = self._current_decision(story, no)
+            if decision.cards:
+                return decision.cards
+            tail = story.passages[-1]["content"] if story.passages else ""
+            prev_no = no - 1
+            prev = story.decisions.get(prev_no) if prev_no >= 1 else None
+            carryover = _pending_hook(prev.direction_spec) if prev and prev.direction_spec else ""
+            decision.cards = await self._direction.generate(
+                premise=story.premise, synopsis=story.synopsis, tail=tail, decision_no=no,
+                context=build_narrative_context(story), carryover=carryover,
+            )
+            saved = self._store.save(story)
+            if hasattr(saved, "__await__"):  # 兼容异步/同步存储
+                await saved
+            return decision.cards

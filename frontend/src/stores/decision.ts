@@ -65,8 +65,10 @@ export const useDecisionStore = defineStore('decision', () => {
   }
 
   // 流程控制
-  const loading = ref(false)
-  const error = ref<string | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
+// 下一拍卡池加载中（独立的轻量指示；不再复用正文主"抽卡中…"状态）
+const cardsLoading = ref(false)
   const lastAction = ref<ActionResult | null>(null)
   const nextDecisionNo = ref<number | null>(null)
   const lastLint = ref<LintIssue[]>([])
@@ -254,24 +256,32 @@ export const useDecisionStore = defineStore('decision', () => {
           lastConsistency.value = d.consistency ?? null
           nextDecisionNo.value = d.next_decision_no
           streamingText.value = ''
+          // 正文已落地，立刻解锁抽卡/推进（下一卡池由 cardsLoading 单独承接）
+          loading.value = false
         } else if (ev.event === 'passage_error') {
           // 生成收尾失败（如下一分歧卡不合规）：展示错误，该步已在服务端回滚，可重试
           streamingText.value = ''
           throw new Error((ev.data as { message: string }).message ?? '生成失败，该步已回滚')
         }
       })
-      // 自动进入下一分歧：直接加载新卡池，无需再点"进入下一分歧"
+      // 自动进入下一分歧：直接加载新卡池（GET /cards 惰性生成），
+      // 期间以独立的 cardsLoading 提示，不占用正文主 loading
       const nxt = nextDecisionNo.value
       if (nxt != null && storyId.value) {
         const keep = {
           lastAction: lastAction.value, lastLint: lastLint.value,
           lastConsistency: lastConsistency.value,
         }
-        await loadCards(storyId.value, nxt)
-        // loadCards 会清空结果态，这里把"上一分歧结果"恢复，用于结果横幅
-        lastAction.value = keep.lastAction
-        lastLint.value = keep.lastLint
-        lastConsistency.value = keep.lastConsistency
+        cardsLoading.value = true
+        try {
+          await loadCards(storyId.value, nxt)
+          // loadCards 会清空结果态，这里把"上一分歧结果"恢复，用于结果横幅
+          lastAction.value = keep.lastAction
+          lastLint.value = keep.lastLint
+          lastConsistency.value = keep.lastConsistency
+        } finally {
+          cardsLoading.value = false
+        }
       }
     } catch (e) {
       error.value = errMsg(e)
@@ -285,12 +295,14 @@ export const useDecisionStore = defineStore('decision', () => {
   async function next() {
     if (!storyId.value || nextDecisionNo.value == null) return
     loading.value = true
+    cardsLoading.value = true
     try {
       await loadCards(storyId.value, nextDecisionNo.value)
     } catch (e) {
       error.value = errMsg(e)
     } finally {
       loading.value = false
+      cardsLoading.value = false
     }
   }
 
@@ -327,6 +339,7 @@ export const useDecisionStore = defineStore('decision', () => {
     bookmarked.value = false
     decisionNo.value = null; cards.value = []; revealed.value = null
     customInstruction.value = ''; loading.value = false; error.value = null
+    cardsLoading.value = false
     lastAction.value = null; nextDecisionNo.value = null
     lastLint.value = []; lastConsistency.value = null
     streamingText.value = ''
@@ -335,7 +348,7 @@ export const useDecisionStore = defineStore('decision', () => {
 
   return {
     storyId, title, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
-    loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
+    loading, cardsLoading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
     creating, creatingTaskId, createStage,
     drawOpen, toggleDraw, closeDraw,
     bookmarked, toggleBookmark, getBookmarkedIds, setBookmarked,

@@ -48,6 +48,9 @@ function labelCn(label: string) {
     <div class="pick-panel">
       <div class="pick-head">
         <span class="pick-count">{{ store.cards.length }} 张命运卡 · 点选即按该走向推进</span>
+        <span v-if="store.cardsLoading && store.cards.length === 0" class="hint cards-loading">
+          生成下一拍卡池…
+        </span>
         <button class="btn primary draw-btn" :disabled="store.loading" @click="store.draw">
           {{ store.loading ? '抽卡中…' : '随机盲抽一张' }}
         </button>
@@ -105,6 +108,10 @@ function labelCn(label: string) {
   color: var(--muted);
   font-size: 13px;
   margin-top: 0;
+}
+.cards-loading {
+  margin-left: auto;
+  font-style: italic;
 }
 .pick-panel {
   margin-top: 4px;
