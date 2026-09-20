@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useReadingStore, THEME_OPTIONS, FONT_OPTIONS, PAGE_WIDTHS } from '../stores/reading'
+import { useReadingStore, THEME_OPTIONS, FONT_OPTIONS, PAGE_WIDTHS, PAGE_MODE_OPTIONS } from '../stores/reading'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -14,6 +14,19 @@ const store = useReadingStore()
           <h3>设置</h3>
           <button class="rs-close" title="关闭 (Esc)" aria-label="关闭" @click="emit('close')">×</button>
         </header>
+
+        <!-- 翻页模式：滚动连读 / 章节翻页 -->
+        <div class="rs-row">
+          <span class="rs-label">翻页模式</span>
+          <div class="rs-radio-group turn-group">
+            <button
+              v-for="m in PAGE_MODE_OPTIONS"
+              :key="m.key"
+              :class="['rs-opt', { sel: store.pageMode === m.key }]"
+              @click="store.setPageMode(m.key)"
+            >{{ m.label }}</button>
+          </div>
+        </div>
 
         <!-- 阅读主题：6 种背景色块，选中带勾号 -->
         <div class="rs-row">
@@ -187,6 +200,16 @@ const store = useReadingStore()
   color: #e35d5d;
   background: #fbe9e9;
   font-weight: 600;
+}
+
+/* 翻页模式：两枚并排按钮，圆角 + 更宽的水平内边距（沿用强调色选中态） */
+.turn-group {
+  justify-content: flex-end;
+  gap: 8px;
+}
+.turn-group .rs-opt {
+  padding: 8px 22px;
+  border-radius: 8px;
 }
 
 /* 数值加减器 */

@@ -4,6 +4,13 @@ import { defineStore } from 'pinia'
 export type ReadingTheme = 'lightgray' | 'lightred' | 'beige' | 'lightgreen' | 'lightblue' | 'dark'
 export type ReadingFont = 'sans' | 'song' | 'kai'
 export type PageWidth = 'auto' | number
+/** 翻页模式：scroll 滚动连读；paged 章节翻页（一次只呈现当前章） */
+export type PageMode = 'scroll' | 'paged'
+
+export const PAGE_MODE_OPTIONS: { key: PageMode; label: string }[] = [
+  { key: 'scroll', label: '滚动翻页' },
+  { key: 'paged', label: '章节翻页' },
+]
 
 export const THEME_OPTIONS: { key: ReadingTheme; label: string }[] = [
   { key: 'lightgray', label: '浅灰' },
@@ -46,6 +53,7 @@ export const useReadingStore = defineStore('reading', () => {
   const font = ref<ReadingFont>('sans')
   const fontSize = ref(18)
   const pageWidth = ref<PageWidth>(800)
+  const pageMode = ref<PageMode>('scroll')
   // 记忆最近一次非深黑主题，供日间/夜间一键切换回来
   const prevLightTheme = ref<ReadingTheme>('lightred')
 
@@ -56,11 +64,12 @@ export const useReadingStore = defineStore('reading', () => {
     if (saved.font && FONT_OPTIONS.some((f) => f.key === saved.font)) font.value = saved.font as ReadingFont
     if (typeof saved.fontSize === 'number') fontSize.value = Math.min(30, Math.max(12, saved.fontSize))
     if (saved.pageWidth === 'auto' || PAGE_WIDTHS.includes(saved.pageWidth as PageWidth)) pageWidth.value = saved.pageWidth as PageWidth
+    if (saved.pageMode === 'scroll' || saved.pageMode === 'paged') pageMode.value = saved.pageMode as PageMode
   } catch { /* 首次使用或缺省时走默认值 */ }
 
   function persist() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: theme.value, font: font.value, fontSize: fontSize.value, pageWidth: pageWidth.value }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: theme.value, font: font.value, fontSize: fontSize.value, pageWidth: pageWidth.value, pageMode: pageMode.value }))
     } catch { /* 隐私模式等场景静默 */ }
   }
 
@@ -87,6 +96,7 @@ export const useReadingStore = defineStore('reading', () => {
   function setFont(k: ReadingFont) { font.value = k }
   function setFontSize(n: number) { fontSize.value = Math.min(30, Math.max(12, n)) }
   function setPageWidth(w: PageWidth) { pageWidth.value = w }
+  function setPageMode(m: PageMode) { pageMode.value = m }
 
   const isNight = computed(() => theme.value === 'dark')
   /** 日间/夜间一键切换：夜间切回最近一次非深黑主题；日间记录当前并切到深黑 */
@@ -99,5 +109,5 @@ export const useReadingStore = defineStore('reading', () => {
     }
   }
 
-  return { theme, font, fontSize, pageWidth, isNight, setTheme, setFont, setFontSize, setPageWidth, toggleNight }
+  return { theme, font, fontSize, pageWidth, pageMode, isNight, setTheme, setFont, setFontSize, setPageWidth, setPageMode, toggleNight }
 })

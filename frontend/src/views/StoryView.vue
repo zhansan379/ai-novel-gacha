@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDecisionStore } from '../stores/decision'
+import { useReadingStore } from '../stores/reading'
 import DecisionPanel from '../components/DecisionPanel.vue'
 import ChapterDirPanel from '../components/ChapterDirPanel.vue'
+import type { Chapter } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const store = useDecisionStore()
+const rstore = useReadingStore()
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
@@ -16,6 +19,8 @@ onMounted(async () => {
   if (id && store.storyId !== id) {
     await store.load(id)
   }
+  viewNo.value = lastContentfulChapter()?.no ?? 1
+  loadedAt.value = formatNow()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
@@ -26,16 +31,100 @@ const storyId = computed(() => route.params.id as string)
 const wordCount = computed(() => store.passages.reduce((n, p) => n + p.length, 0))
 const curNo = computed(() => store.currentChapter?.no ?? 1)
 const chapterByNo = (no: number) => store.chapters.find((c) => c.no === no) ?? null
-const canPrev = computed(() => chapterByNo(curNo.value - 1) != null)
-const canNext = computed(() => chapterByNo(curNo.value + 1) != null)
+
+/** 章节翻页模式下当前展示的章号；滚动模式忽略 */
+const viewNo = ref(curNo.value)
+const isPaged = computed(() => rstore.pageMode === 'paged')
+/** 有效阅读章号：滚动模式跟踪开放章，章节翻页模式跟随 viewNo */
+const activeNo = computed(() => (isPaged.value ? viewNo.value : curNo.value))
+const viewChapter = computed(() => chapterByNo(activeNo.value))
+
+/** 一章只有在覆盖到实际正文段（含端点）时才算“有内容”；空的开章（passage_from > passage_to）不渲染、不翻到。 */
+function isContentful(ch: Chapter | null): boolean {
+  return !!ch && ch.passage_from > 0 && ch.passage_to >= ch.passage_from && ch.passage_from - 1 < store.passages.length
+}
+function chapterRangeWords(ch: Chapter): number {
+  const from = Math.max(0, ch.passage_from - 1)
+  const to = Math.min(ch.passage_to, store.passages.length)
+  let n = 0
+  for (let i = from; i < to; i++) n += store.passages[i].length
+  return n
+}
+/** 最近的“有内容”章：章节翻页模式的初始阅读章，避免落在空的开章上白屏。 */
+function lastContentfulChapter(): Chapter | null {
+  let best: Chapter | null = null
+  for (const c of store.chapters) if (isContentful(c)) best = c
+  return best
+}
+
+/** 正文渲染列表：滚动模式在每章首段前插入章节头；翻页模式只取当前有内容章及其章节头。 */
+interface HeaderBlock { kind: 'header'; ch: Chapter; words: number }
+interface PassageBlock { kind: 'passage'; text: string; index: number }
+type ReadingBlock = HeaderBlock | PassageBlock
+const readingBlocks = computed<ReadingBlock[]>(() => {
+  const blocks: ReadingBlock[] = []
+  if (isPaged.value) {
+    const ch = viewChapter.value
+    if (!ch || !isContentful(ch)) return blocks
+    const from = ch.passage_from - 1
+    const to = Math.min(ch.passage_to, store.passages.length)
+    blocks.push({ kind: 'header', ch, words: chapterRangeWords(ch) })
+    for (let i = from; i < to; i++) blocks.push({ kind: 'passage', text: store.passages[i], index: i })
+    return blocks
+  }
+  const headerAt = new Map<number, Chapter>()
+  for (const c of store.chapters) if (isContentful(c)) headerAt.set(c.passage_from - 1, c)
+  for (let i = 0; i < store.passages.length; i++) {
+    const c = headerAt.get(i)
+    if (c) blocks.push({ kind: 'header', ch: c, words: chapterRangeWords(c) })
+    blocks.push({ kind: 'passage', text: store.passages[i], index: i })
+  }
+  return blocks
+})
+
+const canPrev = computed(() => chapterByNo(activeNo.value - 1) != null)
+const canNext = computed(() => chapterByNo(activeNo.value + 1) != null)
+
+// 本地未落库作者 / 时间，阅读页章节头占位兜底
+const author = 'AI 创作'
+const loadedAt = ref('')
+function _pad(n: number) { return String(n).padStart(2, '0') }
+function formatNow() {
+  const d = new Date()
+  return `${d.getFullYear()}年${_pad(d.getMonth() + 1)}月${_pad(d.getDate())}日 ${_pad(d.getHours())}:${_pad(d.getMinutes())}`
+}
+
+/** 章节翻页模式下切换展示章；滚动模式跳转到目标章 */
+function goChapter(no: number) {
+  if (!chapterByNo(no)) return
+  if (isPaged.value) {
+    viewNo.value = no
+    store.closeDir()
+    document.querySelector<HTMLElement>('.reader')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } else {
+    scrollToChapter(no)
+  }
+}
 
 function scrollToChapter(no: number) {
   const ch = chapterByNo(no)
   if (!ch) return
+  if (isPaged.value) {
+    viewNo.value = no
+    store.closeDir()
+    return
+  }
   const idx = Math.max(0, ch.passage_from - 1)
   document.getElementById(`passage-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   store.closeDir()
 }
+
+// 新章有内容落定时，翻页模式跟随到该章；空的开章不切换，避免白屏
+watch(() => store.currentChapter?.no, (no) => {
+  if (!no) return
+  const c = chapterByNo(no)
+  if (isContentful(c)) viewNo.value = no
+})
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
@@ -61,20 +150,25 @@ function goLore() {
           <span class="crumb-sep">&gt;</span>
           <span class="crumb-current">{{ store.title || '未命名' }}</span>
         </nav>
-        <p class="meta" v-if="!store.loading">
-          <template v-if="store.currentChapter">
-            <span>第 {{ store.currentChapter.no }} 章</span>
-            <template v-if="store.currentChapter.title"><span class="dot">·</span><span>{{ store.currentChapter.title }}</span></template>
-            <span class="dot">·</span>
-          </template>
-          <span>{{ store.passages.length }} 段</span>
-          <span class="dot">·</span>
-          <span>约 {{ wordCount }} 字</span>
-          <template v-if="store.decisionNo && store.storyStatus !== 'completed'">
-            <span class="dot">·</span><span>已到节点 {{ store.decisionNo }}</span>
-          </template>
-          <button class="dir-link" @click="store.dirOpen = true">目录</button>
-        </p>
+        <!-- 元信息栏（书级）：书名 / 作者 / 全书字数 / 时间；每章的“第N章+字数”在正文内按章渲染 -->
+        <div class="meta-bar" v-if="!store.loading">
+          <span class="meta-item" title="书名">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span>{{ store.title || '未命名' }}</span>
+          </span>
+          <span class="meta-item" title="作者">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span>{{ author }}</span>
+          </span>
+          <span class="meta-item" title="全书字数">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span>{{ wordCount }} 字</span>
+          </span>
+          <span class="meta-item" title="更新时间">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <span>{{ loadedAt }}</span>
+          </span>
+        </div>
 
         <!-- 分割线右侧书签：用于收藏/标记当前页 -->
         <button
@@ -92,11 +186,17 @@ function goLore() {
 
       <div class="prose">
         <p v-if="store.loading && !store.passages.length" class="hint phase">加载中…</p>
-        <article v-for="(p, i) in store.passages" :id="`passage-${i}`" :key="i" class="passage">
-          <template v-for="(line, li) in p.split('\n')" :key="li">
-            <p v-if="line.trim()">{{ line.trim() }}</p>
-          </template>
-        </article>
+        <template v-for="(b, i) in readingBlocks" :key="i">
+          <header v-if="b.kind === 'header'" class="chapter-header">
+            <h2 class="chap-title">第{{ b.ch.no }}章<template v-if="b.ch.title">　{{ b.ch.title }}</template></h2>
+            <span class="word-badge" :title="`本章 ${b.words} 字`">{{ b.words }}</span>
+          </header>
+          <article v-else :id="`passage-${b.index}`" class="passage">
+            <template v-for="(line, li) in b.text.split('\n')" :key="li">
+              <p v-if="line.trim()">{{ line.trim() }}</p>
+            </template>
+          </article>
+        </template>
         <div v-if="store.streamingText" class="streaming">
           <span class="caret">{{ store.streamingText }}</span>
         </div>
@@ -112,13 +212,13 @@ function goLore() {
 
       <!-- 章节底端导航：上一章 | 目录 | 世界观 | 抽卡 | 下一章 -->
       <nav class="chapter-nav">
-        <button class="nav-btn" :disabled="!canPrev" @click="scrollToChapter(curNo - 1)">上一章</button>
+        <button class="nav-btn" :disabled="!canPrev" @click="goChapter(activeNo - 1)">上一章</button>
         <button class="nav-btn" @click="store.dirOpen = true">目录</button>
         <button class="nav-btn" @click="goLore">世界观 · 历史线</button>
         <button class="nav-btn" :disabled="store.storyStatus === 'completed'" @click="store.toggleDraw">
           剧情分歧 · 抽卡{{ store.storyStatus === 'completed' ? '（已完结）' : '' }}
         </button>
-        <button class="nav-btn" :disabled="!canNext" @click="scrollToChapter(curNo + 1)">下一章</button>
+        <button class="nav-btn" :disabled="!canNext" @click="goChapter(activeNo + 1)">下一章</button>
       </nav>
     </article>
 
@@ -210,17 +310,55 @@ function goLore() {
   white-space: nowrap;
   min-width: 0;
 }
-.meta {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 13px;
+/* ---------- 正文内章节头：第N章 + 字数徽章；书级元信息栏在顶部 ---------- */
+.chapter-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 30px 0 6px;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 24px;
+}
+.chapter-header:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+.chap-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+.word-badge {
+  flex: none;
+  font-size: 12px;
+  color: #888;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 2px 8px;
+  line-height: 1.4;
+  font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.meta-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
+  gap: 16px;
+  margin-top: 12px;
+  color: #888;
+  font-size: 14px;
+  flex-wrap: wrap;
 }
-.meta .dot {
-  color: var(--border);
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.meta-item svg {
+  flex: none;
 }
 .prose {
   color: var(--text);
@@ -294,18 +432,6 @@ function goLore() {
 .nav-btn:disabled:hover {
   background: none;
   color: var(--muted);
-}
-.dir-link {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-size: 13px;
-  cursor: pointer;
-  padding: 2px 6px;
-}
-.dir-link:hover {
-  text-decoration: underline;
 }
 .ended-banner {
   display: flex;
