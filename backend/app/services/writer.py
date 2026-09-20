@@ -68,3 +68,17 @@ class WriterAgent:
                                       temperature=style.temperature)
         async for chunk in stream:
             yield chunk
+
+    def _compare_system(self, style: StyleProfile) -> str:
+        forbid = "；".join(f"避免{tag}" for tag in style.forbidden) if style.forbidden else ""
+        style_txt = f"{style.system_prompt}\n{forbid}" if forbid else style.system_prompt
+        return "你是小说文风改写助手。严格按给定的文风要求改写正文。\n\n[文风要求]\n" + style_txt
+
+    async def compare(self, text: str, style: StyleProfile) -> str:
+        """用指定文风把同一段素材改写成一段小说正文（文风对比用）。"""
+        user = (f"请将下面这段话改写成一段连贯、有画面感的小说正文，控制在 80~150 字，"
+                f"只输出改写后的正文：\n\n{text}")
+        return await self._gateway.complete(
+            task="draft", system=self._compare_system(style),
+            temperature=style.temperature, user=user,
+        )

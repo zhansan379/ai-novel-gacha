@@ -78,6 +78,13 @@ export const api = {
     return res.styles
   },
 
+  /** 文风对比：同一段素材用若干文风各自生成（真实调用 LLM）。 */
+  compareStyles: (text: string, styleIds: string[]) =>
+    req<{ results: Array<{ style_id: string; name: string; output: string | null; error: string | null }> }>(
+      '/styles/compare',
+      { method: 'POST', body: JSON.stringify({ text, style_ids: styleIds }) },
+    ),
+
   getStory: (storyId: string) => req<StorySummary>(`/stories/${storyId}`),
 
   getStories: () => req<StoryList>('/stories'),

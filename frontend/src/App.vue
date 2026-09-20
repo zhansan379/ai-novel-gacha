@@ -58,6 +58,15 @@ function scrollTop() {
           <span class="rail-label">阅读</span>
         </button>
 
+        <router-link to="/styles" class="rail-btn" title="文风对比">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+          <span class="rail-label">文风</span>
+        </router-link>
+
         <button
           class="rail-btn"
           :class="{ active: rstore.isNight }"

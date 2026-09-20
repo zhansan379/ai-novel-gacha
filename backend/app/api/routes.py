@@ -1,6 +1,7 @@
 """v1 业务路由：故事 → 卡池 → 盲抽/明选/自由输入 → 生成正文 的决策闭环。"""
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Literal
 
@@ -9,6 +10,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from app.gacha import GachaEngine
+from app.llm.errors import LLMError
 from app.schemas import Card, CardLabel, CardPool, DirectionKind, DirectionSpec
 from app.services import registry
 from app.services.store import DecisionLocked, Story, StoryNotFound
@@ -123,6 +125,11 @@ class ImportStoryBody(BaseModel):
     snapshot: dict
 
 
+class StyleCompareRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    style_ids: list[str] | None = None
+
+
 # ---------- 工具 ----------
 def _card_spec(card: Card) -> DirectionSpec:
     return DirectionSpec(
@@ -190,6 +197,27 @@ async def delete_story(sid: str = Path(...)):
 async def list_styles():
     from app.services.styles import list_styles as _list
     return {"styles": _list()}
+
+
+@router.post("/styles/compare", tags=["style"])
+async def compare_styles(body: StyleCompareRequest):
+    """同一段素材，用若干文风各自改写生成，便于对比（真实调用 LLM）。"""
+    from app.services.styles import STYLE_PROFILES, get_style
+
+    ids = body.style_ids if body.style_ids else list(STYLE_PROFILES)
+    ids = [sid for sid in ids if sid in STYLE_PROFILES]
+
+    async def _run(sid: str) -> dict:
+        style = get_style(sid)
+        try:
+            output = await registry._writer.compare(body.text, style)  # noqa: SLF001
+            return {"style_id": sid, "name": style.name, "output": output, "error": None}
+        except LLMError as exc:
+            return {"style_id": sid, "name": style.name, "output": None,
+                    "error": "".join(str(exc).splitlines())[:200]}
+
+    results = await asyncio.gather(*[_run(sid) for sid in ids])
+    return {"results": results}
 
 
 # ---------- 模型接入配置（前端可设） ----------
