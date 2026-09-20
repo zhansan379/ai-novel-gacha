@@ -234,6 +234,28 @@ class StoryService:
         except Exception:
             pass  # 状态更新为辅助步骤，失败不阻断正文流程
 
+    async def _ground_decision(self, story: Story, direction_spec: DirectionSpec) -> list[str]:
+        """本次决策的增量真实事实检索：以"已确定方向"为新实体来源，检索后并入 story.grounding。
+
+        这样剧情推进中新引入的真实人物/产品（如某张卡提到与谁会面）会被即时补齐事实，
+        随 build_narrative_context/build_facts 注入后续正文、下一轮卡池与质检。
+        返回本次新加入的事实行；检索失败不阻断正文流程。
+        """
+        query_text = (getattr(direction_spec, "summary", None) or "").strip()
+        if not query_text:
+            return []
+        try:
+            res = await self._grounding.resolve(query_text)
+        except Exception:
+            return []
+        if not res.facts:
+            return []
+        existing = set(story.grounding)
+        added = [f for f in res.facts if f not in existing]
+        if added:
+            story.grounding.extend(added)
+        return added
+
     async def apply_decision(self, story: Story, decision_no: int, mode: str,
                              direction_spec: DirectionSpec, card_id: str | None = None) -> dict:
         """锁定决策 → 生成对应正文（含质检） → 推进下一决策 → 返回该段正文。"""
@@ -253,6 +275,7 @@ class StoryService:
         }
 
         tail = story.passages[-1]["content"] if story.passages else ""
+        await self._ground_decision(story, direction_spec)  # 实时补齐本拍引入的新真实实体
         prose = await self._writer.generate(
             premise=story.premise, synopsis=story.synopsis, direction=direction_spec, tail=tail,
             style_profile_id=story.style_profile_id, context=build_narrative_context(story),
@@ -300,6 +323,7 @@ class StoryService:
         }
 
         tail = story.passages[-1]["content"] if story.passages else ""
+        await self._ground_decision(story, direction_spec)  # 实时补齐本拍引入的新真实实体
         yield {"type": "start", "decision_no": decision_no, "mode": mode, "card_id": card_id}
 
         pieces: list[str] = []

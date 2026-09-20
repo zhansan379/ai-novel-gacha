@@ -10,6 +10,8 @@ from app.services.grounding import GroundingService, GROUNDING_LABEL
 from app.services.facts import build_narrative_context, build_facts
 from app.services.store import Story
 from app.services.vector_kb import build_chroma_facade, ChromaKBFacade, LLMEmbeddingFunction, NGramEmbedding, _SEED
+from app.schemas import DirectionKind, DirectionSpec
+from app.services.story_service import StoryService
 
 
 def _facade() -> ChromaKBFacade:
@@ -117,3 +119,37 @@ class TestLLMEmbedding:
     def test_default_embedding_is_ngram(self):
         assert isinstance(NGramEmbedding(), NGramEmbedding)
         assert len(_SEED) >= 3
+
+
+class TestDecisionIncrementalGrounding:
+    """每次决策的增量真实事实检索（剧情推进引入新实体会被即时补齐）。"""
+
+    def _svc(self) -> StoryService:
+        g = GroundingService(vector=build_chroma_facade(path=tempfile.mkdtemp(), mode="n-gram"))
+        return StoryService(store=None, gateway=None, direction=None, writer=None, grounding=g)
+
+    def test_direction_introducing_real_entity_grounds_it(self):
+        svc = self._svc()
+        story = Story(id="x", premise="近未来商业故事")
+        spec = DirectionSpec(kind=DirectionKind.MEETING, summary="林浩决定去见电商巨头刘强东谈合作")
+        added = anyio.run(svc._ground_decision, story, spec)
+        assert added
+        joined = "".join(story.grounding)
+        assert "刘强东" in joined and "1998年6月18日" in joined
+
+    def test_repeat_is_idempotent_no_duplicates(self):
+        svc = self._svc()
+        story = Story(id="y", premise="商业故事")
+        spec = DirectionSpec(kind=DirectionKind.ACTION, summary="去找京东创始人刘强东")
+        anyio.run(svc._ground_decision, story, spec)
+        count1 = len(story.grounding)
+        added2 = anyio.run(svc._ground_decision, story, spec)
+        assert added2 == []
+        assert len(story.grounding) == count1
+
+    def test_fantasy_direction_adds_nothing(self):
+        svc = self._svc()
+        story = Story(id="z", premise="雾海旧城")
+        spec = DirectionSpec(kind=DirectionKind.SCENE, summary="主角沿着雾海旧城的码头走向灯塔")
+        added = anyio.run(svc._ground_decision, story, spec)
+        assert added == [] and story.grounding == []

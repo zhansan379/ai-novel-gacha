@@ -21,14 +21,15 @@ def _stub_completer(raw: str):
 
 
 def test_gateway_unconfigured_mode():
-    gw = LLMGateway(Settings(default_provider="deepseek", api_keys={}))
+    # _env_file=None：隔离 ambient backend/.env，确保 api_keys 保持为空
+    gw = LLMGateway(Settings(default_provider="deepseek", api_keys={}, _env_file=None))
     assert gw.mode() == "unconfigured"
 
 
 @pytest.mark.anyio
 async def test_gateway_unconfigured_raises():
     """未接入模型时不得静默降级，应明确报错。"""
-    gw = LLMGateway(Settings(default_provider="deepseek", api_keys={}))
+    gw = LLMGateway(Settings(default_provider="deepseek", api_keys={}, _env_file=None))
     with pytest.raises(ModelError):
         await gw.complete(task="init", system="s", user="u")
 

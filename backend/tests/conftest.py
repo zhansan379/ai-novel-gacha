@@ -13,6 +13,9 @@ def _fresh_store(tmp_path):
     registry.store = store
     registry.keychain = keychain
     registry.gateway._keychain = keychain  # gateway 换用同一 keychain
+    # 隔离 ambient .env：清空网关的 env 兜底 Key，避免 backend/.env 的占位 key 污染"未配置"单测
+    registry.gateway.settings.api_keys = {}
+    registry.gateway.settings.base_urls = {}
     registry.story_service._store = store  # story_service 持有同一存储实例
     yield
     store.close()
