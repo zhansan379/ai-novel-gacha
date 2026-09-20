@@ -16,14 +16,18 @@ _BLUEPRINT_SYSTEM = """你是小说世界构建师。基于「前提 + 简介」
 角色（主角外在目标/内在需求/缺点 + 一位配角）、伏笔种子（故事开头就该埋下、
 指向后文转折的伏笔文案列表，2~4 条）。
 
-严格只输出一个 JSON 对象，不要 Markdown、不要解释：
+伏笔种子必须由你根据本故事的前提与简介自行拟定，紧扣故事内核（人物过往、阵营秘密、
+关键物证、悬念关系等），禁止照抄提示词里的例子。
+
+严格只输出一个 JSON 对象，不要 Markdown、不要解释，按以下字段结构（示例值请用 … 占位，
+不要照抄为具体内容）：
 {
   "world": {"rules": ["…"], "geography": "…", "power_system": "…",
             "factions": ["…"], "constraints": ["…"]},
   "history": [{"era": "…", "event": "…", "impact": "…"}],
   "characters": [{"name":"…","role":"protagonist|supporter","goal":"外在目标",
                   "inner_need":"内在需求","flaw":"缺点","trait":"一句话特征"}],
-  "foreshadow_seeds": ["左肩旧伤", "无名令牌"]
+  "foreshadow_seeds": ["…", "…"]
 }
 """
 
