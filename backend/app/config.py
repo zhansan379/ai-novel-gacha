@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     search_api_key: str = ""
     search_timeout: float = 15.0
 
+    # 检索画像（retrieval profile）：开书时一次 LLM 判定本书按"真实事实/专业/时效/设定连续性"
+    # 四维度需要什么，产出中文专题清单供网络预取。判定失败回退关键词兜底，绝不阻塞开书。
+    profiling_enabled: bool = True
+    profiling_max_topics: int = 4      # 开书最大并行预取专题数（受并发闸门节制）
+
     # Chroma 内置真实知识库（唯一事实来源）
     chroma_path: str = "data/chroma"
     embedding_mode: str = "n-gram"   # "n-gram"(默认,离线) | "llm"(外部 /embeddings, 语义更强)

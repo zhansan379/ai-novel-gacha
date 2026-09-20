@@ -91,6 +91,7 @@ def _blueprint_json(story: Story) -> str:
         "characters": story.characters, "style": story.style_profile_id,
         "foreshadows": story.foreshadows, "relations": story.relations,
         "timeline": story.timeline, "grounding": story.grounding,
+        "retrieval_profile": story.retrieval_profile,
     }, ensure_ascii=False)
 
 
@@ -109,6 +110,7 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
         story.relations = data.get("relations") or []
         story.grounding = data.get("grounding") or []
         story.timeline = data.get("timeline") or []
+        story.retrieval_profile = data.get("retrieval_profile") or {}
         if data.get("style"):
             story.style_profile_id = data["style"]
 
@@ -246,6 +248,7 @@ class SQLiteStore:
                 "world": story.world, "history": story.history, "characters": story.characters,
                 "foreshadows": story.foreshadows, "relations": story.relations,
                 "timeline": story.timeline, "grounding": story.grounding,
+                "retrieval_profile": story.retrieval_profile,
             }
 
     def delete(self, story_id: str) -> bool:

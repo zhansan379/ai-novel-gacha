@@ -15,6 +15,7 @@ from app.services.direction import DirectionGenerator
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
 from app.services.grounding import GroundingService
 from app.services.narrative import NarrativeUpdater
+from app.services.retrieval import ProfileDeterminer, RetrievalProfile, prefetch
 from app.services.store import Story, StoryStore
 from app.services.styles import DEFAULT_STYLE_ID, get_style, match_style_id, style_choice_text
 from app.services.writer import WriterAgent
@@ -53,7 +54,8 @@ def _pending_hook(spec: DirectionSpec | None) -> str:
 class StoryService:
     def __init__(self, store: StoryStore, gateway: LLMGateway,
                  direction: DirectionGenerator, writer: WriterAgent,
-                 grounding: GroundingService | None = None) -> None:
+                 grounding: GroundingService | None = None,
+                 profiler: ProfileDeterminer | None = None) -> None:
         self._store = store
         self._gateway = gateway
         self._direction = direction
@@ -62,6 +64,8 @@ class StoryService:
         self._consistency = ConsistencyChecker(gateway)
         self._narrative = NarrativeUpdater(gateway)
         self._grounding = grounding or GroundingService()
+        self._profiler = profiler
+        self._web = getattr(self._grounding, "_web", None)
 
     def _append_timeline(self, story: Story, decision, no: int, content: str) -> None:
         """把刚生成的这一剧情拍追加进时间线（复盘账本），不触碰世界历史线 world.history。"""
@@ -138,9 +142,13 @@ class StoryService:
             chosen = await self._auto_style(premise, synopsis)
         story.style_profile_id = get_style(chosen).id
 
-        on_stage("检索事实中")
+        on_stage("检索事实·判定检索画像中")
         grounding_res = await self._grounding.resolve(premise, synopsis=synopsis)
         story.grounding = grounding_res.facts
+        profile = await self._determine_profile(premise, synopsis)
+        story.retrieval_profile = profile.merits_dict()
+        prefetched = await prefetch(profile, self._web)
+        await self._merge_prefetched(story, prefetched)
 
         on_stage("构建世界观蓝图中")
         bp = await self._blueprint.build(
@@ -174,20 +182,23 @@ class StoryService:
         want_auto = not (style_profile_id or "").strip() or (style_profile_id or "").strip() == "auto"
 
         # 波1：自动文风(需要才调) ‖ 实事检索 ‖ 世界观骨架
-        on_stage("定文风·检索事实·构先天骨中")
+        on_stage("定文风·检索事实·判定画像·构先天骨中")
         style_task = asyncio.create_task(self._auto_style(premise, synopsis)) if want_auto else None
         grounding_task = asyncio.create_task(self._grounding.resolve(premise, synopsis=synopsis))
         skeleton_task = asyncio.create_task(
             self._blueprint.build_skeleton(premise=premise, synopsis=synopsis))
-        auto_style, grounding_res, skeleton = await asyncio.gather(
-            style_task or _noop(), grounding_task, skeleton_task)
+        profile_task = asyncio.create_task(self._determine_profile(premise, synopsis))
+        auto_style, grounding_res, skeleton, profile = await asyncio.gather(
+            style_task or _noop(), grounding_task, skeleton_task, profile_task)
         chosen = auto_style if want_auto else ((style_profile_id or "").strip() or DEFAULT_STYLE_ID)
         story.style_profile_id = get_style(chosen).id
         story.grounding = grounding_res.facts
+        story.retrieval_profile = profile.merits_dict()
         grounding_txt = self._grounding.facts_text(grounding_res)
 
-        # 波2：世界观细节/历史线/角色/伏笔种子 互不依赖，并行生成，统一对齐骨架
-        on_stage("并行细化世界观·历史·角色·伏笔中")
+        # 波2：世界观细节/历史线/角色/伏笔种子 互不依赖，并行生成，统一对齐骨架；
+        # 同时按画像并行预取职业/地域/专业事实（无 key 或画像无专题时立即返回空）。
+        on_stage("并行细化世界观·历史·角色·伏笔·预取事实中")
         world_task = asyncio.create_task(self._blueprint.build_world(
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
         history_task = asyncio.create_task(self._blueprint.build_history(
@@ -196,13 +207,15 @@ class StoryService:
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
         fs_task = asyncio.create_task(self._blueprint.build_foreshadows(
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
-        world, history, characters, foreshadow_seeds = await asyncio.gather(
-            world_task, history_task, chars_task, fs_task)
+        prefetch_task = asyncio.create_task(prefetch(profile, self._web))
+        world, history, characters, foreshadow_seeds, prefetched = await asyncio.gather(
+            world_task, history_task, chars_task, fs_task, prefetch_task)
         story.world = world or {}
         story.world.setdefault("factions", skeleton.get("factions") or [])
         story.history = history or []
         story.characters = characters or []
         story.foreshadows = init_foreshadows(foreshadow_seeds or [])
+        await self._merge_prefetched(story, prefetched)
 
         # 波3：关系账本依赖角色名，后置等待
         on_stage("补齐关系账本中")
@@ -327,24 +340,56 @@ class StoryService:
         except Exception:
             pass  # 状态更新为辅助步骤，失败不阻断正文流程
 
-    async def _ground_decision(self, story: Story, direction_spec: DirectionSpec) -> list[str]:
-        """本次决策的增量真实事实检索：以"已确定方向"为新实体来源，检索后并入 story.grounding。
+    async def _determine_profile(self, premise: str, synopsis: str) -> RetrievalProfile:
+        """产出本书检索画像（开书一次）。无 profiler / 任何失败 → 回退默认（视为纯召回）。"""
+        if self._profiler is None:
+            return RetrievalProfile()
+        try:
+            return await self._profiler.determine(premise, synopsis)
+        except Exception:
+            return RetrievalProfile()
 
-        这样剧情推进中新引入的真实人物/产品（如某张卡提到与谁会面）会被即时补齐事实，
-        随 build_narrative_context/build_facts 注入后续正文、下一轮卡池与质检。
-        返回本次新加入的事实行；检索失败不阻断正文流程。
+    @staticmethod
+    async def _merge_prefetched(story: Story, prefetched: list[str]) -> None:
+        """把画像预取的职业/地域/专业事实并入 story.grounding（去重，不覆盖既有实体事实）。"""
+        if not prefetched:
+            return
+        existing = set(story.grounding)
+        for f in prefetched:
+            if f not in existing:
+                story.grounding.append(f)
+
+    async def _ground_decision(self, story: Story, direction_spec: DirectionSpec) -> list[str]:
+        """本次决策的增量资料获取。
+
+        默认只做知识库实体召回（离线、快，随 build_narrative_context/build_facts 注入）。
+        仅当本书画像 timeliness=high 且网络已启用时，才用本拍方向做一次中文联网补时实
+        （短超时、失败静默），供"最新政策/科技/时事"类题材现搜；其余题材届时实已在开书预取。
+        检索失败不阻断正文流程。
         """
         query_text = (getattr(direction_spec, "summary", None) or "").strip()
         if not query_text:
             return []
+        added: list[str] = []
         try:
             res = await self._grounding.resolve(query_text)
+            existing = set(story.grounding)
+            added = [f for f in res.facts if f not in existing]
         except Exception:
-            return []
-        if not res.facts:
-            return []
-        existing = set(story.grounding)
-        added = [f for f in res.facts if f not in existing]
+            added = []
+
+        prof = RetrievalProfile.from_dict(story.retrieval_profile)
+        if (prof.timeliness == "high" and prof.require_web
+                and self._web is not None and self._web.enabled):
+            try:  # 时效维度联网：一条、中文、失败静默
+                summary = await self._web.search(query_text)
+                if summary:
+                    line = f"网络检索『{query_text[:30]}』：{summary}"
+                    if line not in story.grounding:
+                        added.append(line)
+            except Exception:
+                pass
+
         if added:
             story.grounding.extend(added)
         return added

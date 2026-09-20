@@ -48,6 +48,9 @@ class Story:
     foreshadows: list = field(default_factory=list)
     # 真实世界事实基座（内置知识库/联网检索）：随每次决策注入生成 prompt，约束尊重史实
     grounding: list = field(default_factory=list)
+    # 检索画像（本书记录的一次判定 + 预取来源）：{real_world, profession, timeliness, continuity,
+    # topics, require_web}，驱动本稿的网络搜索与正文增量联网决策。空 dict=老故事/未判定，走纯召回。
+    retrieval_profile: dict = field(default_factory=dict)
     # 关系账本（知识图谱边）：[{a, b, label, note}]，无向边 a/b 顺序无关。
     # 初始化来自蓝图，随后随每次决策经 narrative.update 的 relation_updates 增量演进；
     # 注入 build_facts/build_narrative_context，供质检与生成遵守跨实体事实。
@@ -112,6 +115,7 @@ class StoryStore:
             "world": story.world, "history": story.history, "characters": story.characters,
             "foreshadows": story.foreshadows, "relations": story.relations,
             "timeline": story.timeline, "grounding": story.grounding,
+            "retrieval_profile": story.retrieval_profile,
         }
 
     def delete(self, story_id: str) -> bool:
@@ -138,6 +142,7 @@ class StoryStore:
             relations=data.get("relations") or [],
             timeline=data.get("timeline") or [],
             grounding=data.get("grounding") or [],
+            retrieval_profile=data.get("retrieval_profile") or {},
         )
         from app.schemas import Card, DirectionSpec
 

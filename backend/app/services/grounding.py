@@ -6,7 +6,8 @@
   或把 Claude Code 写成"藏机密的记事应用"）。
 - 事实的唯一权威来源是 Chroma 向量库（app/services/vector_kb.py）。生成前对前提+简介
   做向量检索，命中即把事实注入 blueprint / direction / writer 的 prompt，约束模型尊重真实。
-- 向量库未覆盖的拉丁/产品类实体，可选用联网检索补充（默认关闭，需配置 SEARCH_API_KEY）。
+- 向量库未覆盖的中文职业/地域/主题题材，走检索画像（services/retrieval.py）判定并按专题
+  网络预取（默认关闭，需配置 SEARCH_API_KEY）——不再本方法内自动联网。
 
 只对"命中真实实体"的故事启用检索；纯架空书 zero 注入，不增加延迟。
 """
@@ -18,14 +19,6 @@ from dataclasses import dataclass, field
 from app.config import Settings
 
 from .vector_kb import KNOWN_ENTITIES, ChromaKBFacade, build_chroma_facade
-
-# 常见 ASCII 噪声词，不作为联网检索候选
-_STOP = {
-    "ai", "app", "ui", "url", "api", "http", "https", "www", "com", "cn", "org", "net",
-    "id", "html", "git", "sse", "json", "pdf", "txt", "img", "etc", "one", "two", "get",
-    "set", "use", "new", "old", "the", "and", "for", "with", "from", "this", "that", "you",
-    "your", "our", "his", "her", "its", "are", "was", "not", "but", "then", "when", "yuan",
-}
 
 
 def _named_in(text_lower: str, entity: str) -> bool:
@@ -46,6 +39,9 @@ def filter_grounding(text: str, lines: list[str]) -> list[str]:
     for raw in lines:
         stripped = raw.lstrip("•·").strip()
         if not stripped:
+            continue
+        if stripped.startswith("专业检索"):  # 画像预取的职业/地域/专业事实，属本书显式需求，保留
+            out.append(raw)
             continue
         if stripped.startswith("网络检索"):
             m = re.search(r"『([^』]+)』", stripped)
@@ -140,23 +136,12 @@ class GroundingService:
         self._vector = vector
         self._web = web
 
-    @staticmethod
-    def _unresolved_tokens(text: str, labels: set[str]) -> list[str]:
-        """向量库未覆盖的拉丁/产品类词：作为联网检索候选（多数产品/公司是拉丁拼写）。"""
-        used = {x.lower() for x in labels}
-        toks = re.findall(r"[A-Za-z][A-Za-z0-9_.\-]{2,30}", text)
-        out = []
-        seen = set()
-        for t in toks:
-            k = t.lower().strip("._-")
-            if k in _STOP or k in used:
-                continue
-            if t not in seen:
-                seen.add(t)
-                out.append(t)
-        return out
-
     async def resolve(self, premise: str, synopsis: str = "") -> GroundingResult:
+        """知识库实体召回（离线、快）：只对当前文本真正点名了的真实实体注入事实。
+
+        网络检索已改由检索画像(services/retrieval.py)驱动，不再由本方法内的启发式触发，
+        避免「山西下井」「煤矿」这类中文职业/地域/主题题材落入检索盲区。
+        """
         text = f"{premise}\n{synopsis}"
         res = GroundingResult()
         hits = self._vector.query(text) if self._vector is not None else []
@@ -171,15 +156,6 @@ class GroundingService:
             res.facts.append(f"• {fact if '：' in fact else ent + '：' + fact}")
             if ent not in res.labels:
                 res.labels.append(ent)
-
-        web = self._web
-        if web and web.enabled:
-            for token in self._unresolved_tokens(text, set(res.labels))[:web.max_queries]:
-                summary = await web.search(token)
-                if summary:
-                    res.facts.append(f"• 网络检索『{token}』：{summary}")
-                    if token not in res.labels:
-                        res.labels.append(token)
         return res
 
     def facts_text(self, res: GroundingResult) -> str:

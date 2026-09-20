@@ -6,6 +6,7 @@ from app.llm import LLMGateway
 from app.services.direction import DirectionGenerator
 from app.services.grounding import make_grounding
 from app.services.keychain import Keychain
+from app.services.retrieval import ProfileDeterminer
 from app.services.story_service import StoryService
 from app.services.store import StoryStore
 from app.services.tasks import TaskManager
@@ -18,5 +19,6 @@ gateway = LLMGateway(settings, keychain=keychain)
 _direction = DirectionGenerator(gateway)
 _writer = WriterAgent(gateway)
 _grounding = make_grounding(settings, gateway=gateway)
-story_service = StoryService(store, gateway, _direction, _writer, grounding=_grounding)
+_profiler = ProfileDeterminer(gateway)
+story_service = StoryService(store, gateway, _direction, _writer, grounding=_grounding, profiler=_profiler)
 tasks = TaskManager()                              # 异步开书任务注册表（后台执行 + 轮询状态）
