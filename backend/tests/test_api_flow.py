@@ -244,3 +244,33 @@ def test_narrative_state_advances_with_decision():
     protagonist = next(c0 for c0 in bp1["characters"] if c0["name"] == "主角")
     assert protagonist.get("moves")  # 有本段动向
     assert "无名令牌" in statuses  # 已有种子，不重复新增
+
+
+def test_undo_last_step_restores_state():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "雾海记忆城"}).json()["story_id"]
+    assert all(f["status"] == "planted" for f in c.get(f"/v1/stories/{sid}/blueprint").json()["foreshadows"])
+
+    c.post(f"/v1/stories/{sid}/decisions/1/gacha")
+    bp1 = c.get(f"/v1/stories/{sid}/blueprint").json()
+    assert any(f["status"] == "advanced" for f in bp1["foreshadows"])
+
+    r = c.post(f"/v1/stories/{sid}/undo")
+    assert r.status_code == 200
+    assert r.json()["next_decision_no"] == 1
+    assert len(c.get(f"/v1/stories/{sid}").json()["passages"]) == 1  # 只剩开篇
+
+    # 角色与伏笔回退到本步推进前
+    bp2 = c.get(f"/v1/stories/{sid}/blueprint").json()
+    assert all(f["status"] == "planted" for f in bp2["foreshadows"])
+    assert all(not c0.get("moves") for c0 in bp2["characters"])
+
+    # 解锁后可重新选择
+    assert c.post(f"/v1/stories/{sid}/decisions/1/gacha").status_code == 200
+
+
+def test_undo_with_nothing_returns_409():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "x"}).json()["story_id"]
+    r = c.post(f"/v1/stories/{sid}/undo")
+    assert r.status_code == 409

@@ -208,6 +208,17 @@ async def get_story(sid: str = Path(...)):
                         timeline=story.timeline)
 
 
+@router.post("/stories/{sid}/undo", tags=["story"])
+async def undo_last_step(sid: str = Path(...)):
+    """撤销上一步：回退最后一段正文/时间线，解锁该决策并还原角色与伏笔快照。"""
+    story = decision_path(sid)
+    try:
+        return await registry.story_service.undo_last(story)
+    except ValueError as exc:
+        raise HTTPException(status_code=409,
+                            detail={"code": "NOT_UNDOABLE", "message": str(exc)}) from exc
+
+
 @router.get("/stories/{sid}/timeline", tags=["story"])
 async def get_timeline(sid: str = Path(...)):
     """剧情时间线（复盘账本）：逐决策追加的事件流；区别于世界历史线 world.history。"""

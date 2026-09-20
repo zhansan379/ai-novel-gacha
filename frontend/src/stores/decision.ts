@@ -150,11 +150,22 @@ export const useDecisionStore = defineStore('decision', () => {
           lastLint.value = d.lint ?? []
           lastConsistency.value = d.consistency ?? null
           nextDecisionNo.value = d.next_decision_no
-          cards.value = []
-          decisionNo.value = null
           streamingText.value = ''
         }
       })
+      // 自动进入下一分歧：直接加载新卡池，无需再点"进入下一分歧"
+      const nxt = nextDecisionNo.value
+      if (nxt != null && storyId.value) {
+        const keep = {
+          lastAction: lastAction.value, lastLint: lastLint.value,
+          lastConsistency: lastConsistency.value,
+        }
+        await loadCards(storyId.value, nxt)
+        // loadCards 会清空结果态，这里把"上一分歧结果"恢复，用于结果横幅
+        lastAction.value = keep.lastAction
+        lastLint.value = keep.lastLint
+        lastConsistency.value = keep.lastConsistency
+      }
     } catch (e) {
       error.value = errMsg(e)
     } finally {
@@ -180,6 +191,30 @@ export const useDecisionStore = defineStore('decision', () => {
     revealed.value = cards.value.find((c) => c.card_id === cardId) ?? null
   }
 
+  /** 明选：点卡即提交并生成（不再需要先选再点"采用"）。 */
+  async function applyCard(cardId: string) {
+    pickLocal(cardId)
+    await apply()
+  }
+
+  /** 撤销上一步：回退最后一段正文/时间线，还原伏笔与角色，回到上一分歧重新选择。 */
+  async function undo() {
+    if (!storyId.value) return
+    loading.value = true
+    error.value = null
+    try {
+      await api.undoLast(storyId.value)
+      await load(storyId.value)        // 同步正文/下一分歧卡池
+      lastAction.value = null          // 清掉已撤销那步的结果横幅
+      lastLint.value = []
+      lastConsistency.value = null
+    } catch (e) {
+      error.value = errMsg(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
   function reset() {
     storyId.value = null; synopsis.value = ''; passages.value = []
     decisionNo.value = null; cards.value = []; revealed.value = null
@@ -192,6 +227,6 @@ export const useDecisionStore = defineStore('decision', () => {
   return {
     storyId, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
     loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
-    create, load, draw, apply, next, pickLocal, reset,
+    create, load, draw, apply, applyCard, undo, next, pickLocal, reset,
   }
 })

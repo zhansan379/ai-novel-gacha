@@ -27,6 +27,8 @@ class Decision:
     card_id: str | None = None
     direction_spec: DirectionSpec | None = None
     applied: bool = False
+    # 本步推进前的角色/伏笔快照（供"撤销上一步"还原），None 表示无可回滚的状态
+    rollback: dict | None = None
 
 
 @dataclass

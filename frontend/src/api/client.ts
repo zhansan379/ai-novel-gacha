@@ -84,6 +84,11 @@ export const api = {
 
   getTimeline: (storyId: string) => req<TimelineResponse>(`/stories/${storyId}/timeline`),
 
+  undoLast: (storyId: string) =>
+    req<{ undo: boolean; next_decision_no: number }>(`/stories/${storyId}/undo`, {
+      method: 'POST', body: '{}',
+    }),
+
   getCards: (storyId: string, decisionNo: number) =>
     req<CardsResponse>(`/stories/${storyId}/decisions/${decisionNo}/cards`),
 

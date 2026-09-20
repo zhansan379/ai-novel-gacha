@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     applied INTEGER NOT NULL DEFAULT 0,
     cards_json TEXT NOT NULL DEFAULT '[]',
     direction_json TEXT,
+    rollback_json TEXT,
     PRIMARY KEY (story_id, no)
 );
 CREATE INDEX IF NOT EXISTS idx_passages_story ON passages(story_id);
@@ -60,6 +61,7 @@ def _decision_to_row(story_id: str, d: Decision) -> tuple:
         story_id, d.no, d.pool_version, d.mode, d.card_id, int(d.applied),
         _card_json(d.cards),
         d.direction_spec.model_dump_json() if d.direction_spec else None,
+        json.dumps(d.rollback, ensure_ascii=False) if d.rollback else None,
     )
 
 
@@ -74,6 +76,11 @@ def _row_to_decision(row: sqlite3.Row) -> Decision:
     )
     if row["direction_json"]:
         d.direction_spec = DirectionSpec.model_validate_json(row["direction_json"])
+    if row["rollback_json"]:
+        try:
+            d.rollback = json.loads(row["rollback_json"])
+        except json.JSONDecodeError:
+            d.rollback = None
     return d
 
 
@@ -115,12 +122,15 @@ class SQLiteStore:
         self._migrate()
 
     def _migrate(self) -> None:
-        """轻量列迁移：为既有库补充 blueprint_json。"""
+        """轻量列迁移：为既有库补充 blueprint_json / decisions.rollback_json。"""
         with self._lock:
             cols = [r[1] for r in self._conn.execute("PRAGMA table_info(stories)").fetchall()]
             if "blueprint_json" not in cols:
                 self._conn.execute("ALTER TABLE stories ADD COLUMN blueprint_json TEXT")
-                self._conn.commit()
+            dcols = [r[1] for r in self._conn.execute("PRAGMA table_info(decisions)").fetchall()]
+            if "rollback_json" not in dcols:
+                self._conn.execute("ALTER TABLE decisions ADD COLUMN rollback_json TEXT")
+            self._conn.commit()
 
     def init(self) -> None:
         """幂等建表（构造时已执行，保留以显式调用）。"""
@@ -130,12 +140,12 @@ class SQLiteStore:
 
     def _insert_decision(self, story_id: str, d: Decision) -> None:
         self._conn.execute(
-            """INSERT INTO decisions(story_id,no,pool_version,mode,card_id,applied,cards_json,direction_json)
-               VALUES(?,?,?,?,?,?,?,?)
+            """INSERT INTO decisions(story_id,no,pool_version,mode,card_id,applied,cards_json,direction_json,rollback_json)
+               VALUES(?,?,?,?,?,?,?,?,?)
                ON CONFLICT(story_id,no) DO UPDATE SET
                  pool_version=excluded.pool_version, mode=excluded.mode, card_id=excluded.card_id,
                  applied=excluded.applied, cards_json=excluded.cards_json,
-                 direction_json=excluded.direction_json""",
+                 direction_json=excluded.direction_json, rollback_json=excluded.rollback_json""",
             _decision_to_row(story_id, d),
         )
 

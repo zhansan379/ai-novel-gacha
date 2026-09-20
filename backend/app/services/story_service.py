@@ -1,6 +1,7 @@
 """故事服务：开书初始化 + 决策应用（生成方向对应的下一段正文）。"""
 from __future__ import annotations
 
+import copy
 import uuid
 
 from app.consistency.checker import ConsistencyChecker
@@ -105,6 +106,34 @@ class StoryService:
             raise KeyError(f"决策节点不存在: {decision_no}")
         return decision
 
+    async def undo_last(self, story: Story) -> dict:
+        """撤销上一步：回退最后一条正文/时间线，解锁该决策并还原角色与伏笔快照。"""
+        last_no = story.next_decision_no - 1
+        decision = story.decisions.get(last_no)
+        if last_no < 1 or decision is None or not decision.applied:
+            raise ValueError("没有可撤销的上一步")
+
+        # 还原角色/伏笔到本步推进前
+        if decision.rollback:
+            story.characters = decision.rollback.get("characters") or story.characters
+            story.foreshadows = decision.rollback.get("foreshadows") or story.foreshadows
+
+        # 移除本步生成的正文与时间线条目
+        story.passages = [p for p in story.passages if p.get("decision_no") != last_no]
+        story.timeline = [t for t in story.timeline if t.get("decision_no") != last_no]
+
+        # 解锁该决策（保留卡池，可重新选择）
+        decision.applied = False
+        decision.mode = None
+        decision.card_id = None
+        decision.direction_spec = None
+        decision.rollback = None
+        story.next_decision_no = last_no
+
+        self._store.save(story)
+        return {"undo": True, "next_decision_no": last_no,
+                "passages_remaining": len(story.passages)}
+
     async def _advance_state(self, story: Story, direction_spec: DirectionSpec | None,
                              passage: str) -> None:
         """决策后：若命中变点，让伏笔/角色随这拍剧情推进，成为后续生成/质检的上下文。"""
@@ -136,6 +165,10 @@ class StoryService:
         decision.card_id = card_id
         decision.direction_spec = direction_spec
         decision.applied = True
+        decision.rollback = {
+            "characters": copy.deepcopy(story.characters),
+            "foreshadows": copy.deepcopy(story.foreshadows),
+        }
 
         tail = story.passages[-1]["content"] if story.passages else ""
         prose = await self._writer.generate(
@@ -175,6 +208,10 @@ class StoryService:
         decision.card_id = card_id
         decision.direction_spec = direction_spec
         decision.applied = True
+        decision.rollback = {
+            "characters": copy.deepcopy(story.characters),
+            "foreshadows": copy.deepcopy(story.foreshadows),
+        }
 
         tail = story.passages[-1]["content"] if story.passages else ""
         yield {"type": "start", "decision_no": decision_no, "mode": mode, "card_id": card_id}
