@@ -18,12 +18,12 @@ ROUTES: dict[str, Route] = {
     "init": Route(temperature=0.5, max_tokens=600),
     "blueprint": Route(temperature=0.5, max_tokens=1500),
     "direction": Route(temperature=0.7, max_tokens=1200),
-    # 正文：更有文采
-    "draft": Route(temperature=0.8, max_tokens=800),
+    # 正文：更有文采（每拍 700~1000 字，需足够 token 避免截断）
+    "draft": Route(temperature=0.8, max_tokens=2000),
     # 一致性/审稿：最稳
     "consistency": Route(temperature=0.0, max_tokens=600),
-    # 叙事状态更新（伏笔推进/角色增量）：紧凑、偏执信
-    "narrative_update": Route(temperature=0.2, max_tokens=250),
+    # 叙事状态更新（伏笔推进/角色/关系递增）：紧凑、偏执信
+    "narrative_update": Route(temperature=0.2, max_tokens=450),
 }
 
 DEFAULT_ROUTE = Route(temperature=0.7, max_tokens=800)

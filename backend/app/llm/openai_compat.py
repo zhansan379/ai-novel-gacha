@@ -23,6 +23,16 @@ def completions_url(base_url: str) -> str:
     return f"{base}/chat/completions"
 
 
+def embeddings_url(base_url: str) -> str:
+    """从 Base URL 推导 /embeddings 端点（OpenAI 兼容）。"""
+    base = base_url.rstrip("/")
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")]
+    elif base.endswith("/completions"):
+        base = base[: -len("/completions")]
+    return f"{base.rstrip('/')}/embeddings"
+
+
 class OpenAICompatLLM:
     def __init__(self, *, base_url: str, api_key: str, model: str, route: Route, timeout: float) -> None:
         self.base_url = base_url.rstrip("/")
@@ -32,6 +42,21 @@ class OpenAICompatLLM:
         self.route = route
         self.timeout = timeout
         self.mode = "openai-compat"
+
+    async def embed(self, texts: list[str], model: str | None = None) -> list[list[float]]:
+        """调用 OpenAI 兼容 /embeddings 端点，返回向量列表（供 Chroma LLM embedding 校验/使用）。"""
+        url = embeddings_url(self.endpoint)
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = {"model": model or self.model, "input": list(texts)}
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.post(url, json=payload, headers=headers)
+                if res.status_code >= 400:
+                    raise ModelError(f"embedding 返回 {res.status_code}: {res.text[:200]}")
+                data = res.json()
+                return [item["embedding"] for item in data["data"]]
+        except httpx.HTTPError as exc:
+            raise ModelError(f"embedding 请求失败（{type(exc).__name__}）：{str(exc).strip()}") from exc
 
     async def complete(self, *, system: str, user: str, max_tokens: int | None = None) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}

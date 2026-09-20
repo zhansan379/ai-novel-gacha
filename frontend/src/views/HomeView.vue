@@ -36,7 +36,7 @@ watch(() => store.loading, (loading) => {
 onMounted(async () => {
   try {
     styles.value = await api.getStyles()
-    selectedStyle.value = styles.value[0]?.id ?? ''
+    selectedStyle.value = ''  // 默认自动匹配（留空 → 后端按内容推荐）
   } catch {
     styles.value = []
   }
@@ -180,9 +180,12 @@ async function createStory() {
       <div class="style-row">
         <label class="style-label" for="style">文风：</label>
         <select v-model="selectedStyle" id="style" class="style-select">
+          <option value="">自动匹配（按内容推荐）</option>
           <option v-for="s in styles" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
-        <span class="style-desc">{{ styles.find((s) => s.id === selectedStyle)?.description }}</span>
+        <span class="style-desc">
+          {{ selectedStyle ? styles.find((s) => s.id === selectedStyle)?.description : '不选则由系统根据故事内容自动推荐' }}
+        </span>
       </div>
 
       <p v-if="store.error" class="error">{{ store.error }}</p>

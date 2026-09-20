@@ -25,4 +25,9 @@ novel_projects/
 .idea/
 .vscode/
 *.log
-.DS_Storebackend/data/
+.DS_Store
+
+# --- 后端本地数据（含 Chroma 向量库，不入库）---
+backend/data/
+
+.zcode

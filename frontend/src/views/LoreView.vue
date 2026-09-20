@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import BlueprintPanel from '../components/BlueprintPanel.vue'
+import KnowledgeGraph from '../components/KnowledgeGraph.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,6 +29,7 @@ onMounted(async () => {
       </div>
     </header>
     <blockquote v-if="synopsis" class="lore-synop">{{ synopsis }}</blockquote>
+    <KnowledgeGraph :story-id="storyId" />
     <BlueprintPanel :story-id="storyId" />
   </section>
 </template>

@@ -83,3 +83,17 @@ class LLMGateway:
             timeout=self.settings.llm_timeout,
         )
         return llm.stream(system=system, user=user, max_tokens=max_tokens)
+
+    async def embed(self, texts: list[str], model: str | None = None) -> list[list[float]]:
+        """调用当前生效服务的 /embeddings 端点，返回向量列表（LLM embedding 用）。"""
+        cfg = self.resolve()
+        if cfg is None:
+            raise ModelError(_NOT_CONFIGURED)
+        llm = OpenAICompatLLM(
+            base_url=cfg["base_url"] or self.settings.openai_compat_base_url,
+            api_key=cfg["api_key"],
+            model=cfg["model"],
+            route=route_for("embed"),
+            timeout=self.settings.llm_timeout,
+        )
+        return await llm.embed(texts, model=model)

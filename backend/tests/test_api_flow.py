@@ -15,12 +15,21 @@ from app.services import registry
 
 _STUB_CARDS = [
     {"card_id": "t-a", "title": "夜雨敲门", "label": "EVENT", "rarity": "R", "weight": 40,
-     "content": "雨夜有人敲门，指名要找主角。"},
+     "content": "雨夜有人敲门，指名要找主角。",
+     "cause": "主角在当铺亮了那件旧物，被眼线盯上并报信到此",
+     "aftermath": "来客态度成谜，主角与其对峙，得知自己被悬赏追查",
+     "suspense": "来客掏出的画像像是主角年少时的自己"},
     {"card_id": "t-b", "title": "落魄画师", "label": "MEETING", "rarity": "SR", "weight": 25,
      "content": "画师认出了主角身上的一件旧物。",
+     "cause": "画师曾在旧王宫给贵人画像，认得过这件旧物",
+     "aftermath": "画师欲言又止，暗示旧物主人身份不简单，主角追问他愿谈的条件",
+     "suspense": "画师说旧物尚有一件在别人手里",
      "risk_balance": {"tension": 6, "suggested_turn": "画师揭晓关于主角过去的线索"}},
     {"card_id": "t-c", "title": "无名密信", "label": "FORESHADOW", "rarity": "N", "weight": 60,
-     "content": "一封没有落款的信，笔迹却异常熟悉。"},
+     "content": "一封没有落款的信，笔迹却异常熟悉。",
+     "cause": "信是趁主角出门时塞进门缝的，无人看见送信人",
+     "aftermath": "主角读信后脸色骤变，开始怀疑身边的人",
+     "suspense": "信上提到的那日正是主角失忆的那日"},
 ]
 
 _STUB_BLUEPRINT = {
@@ -46,6 +55,7 @@ async def _stub_complete(self, *, task, system, user, max_tokens=None, temperatu
         return json.dumps({
             "foreshadow_updates": [{"text": "左肩旧伤", "status": "advanced"}],
             "character_updates": [{"name": "主角", "note": "这一拍揭开了身世一角"}],
+            "relation_updates": [{"a": "主角", "b": "守刻人", "label": "隶属", "note": "得知身世与守刻人的纠葛"}],
             "new_foreshadows": ["一枚无名令牌"],
         }, ensure_ascii=False)
     if task == "init":
@@ -158,6 +168,8 @@ def test_blueprint_built_and_persisted():
     assert isinstance(bp["history"], list)
     assert all(f["text"] in {"左肩旧伤", "无名令牌"} for f in bp["foreshadows"])
     assert all(f["status"] == "planted" for f in bp["foreshadows"])
+    # 初始蓝图未产关系边 → 关系账本为空（随剧情推进才长出）
+    assert bp["relations"] == []
     # 不再产出预设卷章大纲
     assert "outline" not in bp
 
@@ -245,6 +257,11 @@ def test_narrative_state_advances_with_decision():
     protagonist = next(c0 for c0 in bp1["characters"] if c0["name"] == "主角")
     assert protagonist.get("moves")  # 有本段动向
     assert "无名令牌" in statuses  # 已有种子，不重复新增
+    # 关系账本随推进长出：主角-守刻人 隶属边出现
+    assert any(
+        r["a"] == "主角" and r["b"] == "守刻人" and r["label"] == "隶属"
+        for r in bp1["relations"]
+    )
 
 
 def test_undo_last_step_restores_state():
@@ -265,6 +282,8 @@ def test_undo_last_step_restores_state():
     bp2 = c.get(f"/v1/stories/{sid}/blueprint").json()
     assert all(f["status"] == "planted" for f in bp2["foreshadows"])
     assert all(not c0.get("moves") for c0 in bp2["characters"])
+    # 关系账本同样回滚：推进时新增的隶属边被撤销
+    assert bp2["relations"] == []
 
     # 解锁后可重新选择
     assert c.post(f"/v1/stories/{sid}/decisions/1/gacha").status_code == 200

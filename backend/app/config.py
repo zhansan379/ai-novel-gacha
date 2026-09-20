@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     openai_compat_base_url: str = "https://api.deepseek.com/v1"
     llm_timeout: float = 60.0
 
+    # 真实世界事实基座：网络搜索（可选增强，二阶段）。未配置搜索密钥 → 仅用内置知识库。
+    # 内置知识库：backend/data/knowledge_base.json
+    search_provider: str = "tavily"
+    search_api_key: str = ""
+    search_timeout: float = 15.0
+
+    # Chroma 内置真实知识库（唯一事实来源）
+    chroma_path: str = "data/chroma"
+    embedding_mode: str = "n-gram"   # "n-gram"(默认,离线) | "llm"(外部 /embeddings, 语义更强)
+    embedding_model: str = ""        # llm 模式下的 embedding 模型名；留空则回落 n-gram
+    embed_timeout: float = 20.0
+
     # 持久化（SQLite）
     db_path: str = "data/app.db"
 

@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field
 
 DEFAULT_STYLE_ID = "restrained"
@@ -61,6 +63,29 @@ STYLE_PROFILES: dict[str, StyleProfile] = {
 
 def get_style(style_id: str | None) -> StyleProfile:
     return STYLE_PROFILES.get(style_id or DEFAULT_STYLE_ID, STYLE_PROFILES[DEFAULT_STYLE_ID])
+
+
+def match_style_id(raw: str | None) -> str | None:
+    """从模型输出里解析出一个内置文风 id；识别失败返回 None。
+
+    对大小写/包裹文字宽容：只要求输出里以单词边界出现某个内置 id 即可，
+    避免把 longer 里的子串（如 "urban" 之于 "suburban"）误判为命中。
+    """
+    if not raw:
+        return None
+    text = raw.strip().lower()
+    for pid in STYLE_PROFILES:
+        if re.search(rf"(?<![a-z]){pid}(?![a-z])", text):
+            return pid
+    return None
+
+
+def style_choice_text() -> str:
+    """把内置文风列成选择器可读的清单（给自动选文风的模型看）。"""
+    return "\n".join(
+        f"- {s.id}：{s.name}（{s.description}）"
+        for s in STYLE_PROFILES.values()
+    )
 
 
 def list_styles() -> list[dict]:

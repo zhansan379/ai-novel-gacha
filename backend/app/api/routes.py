@@ -135,6 +135,8 @@ def _card_spec(card: Card) -> DirectionSpec:
     return DirectionSpec(
         kind=_LABEL_TO_KIND[card.label], summary=card.content,
         constraints=['保持既定文风'], risk_flag=(card.rarity.value == "SSR"),
+        cause=card.cause, aftermath=card.aftermath, suspense=card.suspense,
+        risk_balance=card.risk_balance,
     )
 
 
@@ -306,6 +308,7 @@ async def get_blueprint(sid: str = Path(...)):
         "characters": story.characters,
         "style": story.style_profile_id,
         "foreshadows": story.foreshadows,
+        "relations": story.relations,
     }
 
 

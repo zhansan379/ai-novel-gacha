@@ -169,6 +169,7 @@ export interface CharacterCard {
   moves?: string[]
 }
 export interface ForeshadowItem { id: string; text: string; origin: string; status: 'planted' | 'advanced' | 'paid_off' }
+export interface RelationEdge { a: string; b: string; label?: string; note?: string }
 export interface Blueprint {
   story_id: string
   world: WorldSetting
@@ -176,4 +177,5 @@ export interface Blueprint {
   characters: CharacterCard[]
   style?: string
   foreshadows?: ForeshadowItem[]
+  relations?: RelationEdge[]
 }

@@ -89,7 +89,8 @@ def _blueprint_json(story: Story) -> str:
     return json.dumps({
         "world": story.world, "history": story.history,
         "characters": story.characters, "style": story.style_profile_id,
-        "foreshadows": story.foreshadows, "timeline": story.timeline,
+        "foreshadows": story.foreshadows, "relations": story.relations,
+        "timeline": story.timeline, "grounding": story.grounding,
     }, ensure_ascii=False)
 
 
@@ -105,6 +106,8 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
         story.history = data.get("history") or []
         story.characters = data.get("characters") or []
         story.foreshadows = data.get("foreshadows") or []
+        story.relations = data.get("relations") or []
+        story.grounding = data.get("grounding") or []
         story.timeline = data.get("timeline") or []
         if data.get("style"):
             story.style_profile_id = data["style"]
@@ -241,7 +244,8 @@ class SQLiteStore:
                     for d in story.decisions.values()
                 ],
                 "world": story.world, "history": story.history, "characters": story.characters,
-                "foreshadows": story.foreshadows, "timeline": story.timeline,
+                "foreshadows": story.foreshadows, "relations": story.relations,
+                "timeline": story.timeline, "grounding": story.grounding,
             }
 
     def delete(self, story_id: str) -> bool:
@@ -273,6 +277,7 @@ class SQLiteStore:
                 style_profile_id=data.get("style_profile_id") or "restrained",
                 foreshadows=data.get("foreshadows") or [],
                 timeline=data.get("timeline") or [],
+                grounding=data.get("grounding") or [],
             )
             for obj in (data.get("decisions") or []):
                 d = Decision(

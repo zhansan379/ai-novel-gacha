@@ -46,6 +46,12 @@ class Story:
     style_profile_id: str = "restrained"
     # 伏笔账本：[{id, text, origin, status: planted|advanced|paid_off}]
     foreshadows: list = field(default_factory=list)
+    # 真实世界事实基座（内置知识库/联网检索）：随每次决策注入生成 prompt，约束尊重史实
+    grounding: list = field(default_factory=list)
+    # 关系账本（知识图谱边）：[{a, b, label, note}]，无向边 a/b 顺序无关。
+    # 初始化来自蓝图，随后随每次决策经 narrative.update 的 relation_updates 增量演进；
+    # 注入 build_facts/build_narrative_context，供质检与生成遵守跨实体事实。
+    relations: list = field(default_factory=list)
     # 剧情时间线（复盘账本）：随每次决策追加，{no, decision_no, mode, card_id, label, title, summary}
     # 与 world.history（世界历史线·固定背景）是两回事，二者互不影响。
     timeline: list = field(default_factory=list)
@@ -104,7 +110,8 @@ class StoryStore:
                 for d in story.decisions.values()
             ],
             "world": story.world, "history": story.history, "characters": story.characters,
-            "foreshadows": story.foreshadows, "timeline": story.timeline,
+            "foreshadows": story.foreshadows, "relations": story.relations,
+            "timeline": story.timeline, "grounding": story.grounding,
         }
 
     def delete(self, story_id: str) -> bool:
@@ -128,7 +135,9 @@ class StoryStore:
             characters=data.get("characters") or [],
             style_profile_id=data.get("style_profile_id") or "restrained",
             foreshadows=data.get("foreshadows") or [],
+            relations=data.get("relations") or [],
             timeline=data.get("timeline") or [],
+            grounding=data.get("grounding") or [],
         )
         from app.schemas import Card, DirectionSpec
 

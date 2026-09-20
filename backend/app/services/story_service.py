@@ -11,9 +11,10 @@ from app.schemas import DirectionKind, DirectionSpec
 from app.services.blueprint import BlueprintBuilder
 from app.services.direction import DirectionGenerator
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
+from app.services.grounding import GroundingService
 from app.services.narrative import NarrativeUpdater
 from app.services.store import Story, StoryStore
-from app.services.styles import get_style
+from app.services.styles import DEFAULT_STYLE_ID, get_style, match_style_id, style_choice_text
 from app.services.writer import WriterAgent
 
 _INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），
@@ -30,9 +31,22 @@ def _beat_summary(text: str, limit: int = 60) -> str:
     return t[:limit] or t
 
 
+def _pending_hook(spec: DirectionSpec | None) -> str:
+    """从已落定的方向里取出下一拍应回收的悬念/后果，作为下一轮卡池的延续输入。"""
+    if spec is None:
+        return ""
+    parts = []
+    if getattr(spec, "suspense", None):
+        parts.append(f"上一拍留下的悬念：{spec.suspense}")
+    if getattr(spec, "aftermath", None):
+        parts.append(f"上一事件的去向：{spec.aftermath}")
+    return "\n".join(parts)
+
+
 class StoryService:
     def __init__(self, store: StoryStore, gateway: LLMGateway,
-                 direction: DirectionGenerator, writer: WriterAgent) -> None:
+                 direction: DirectionGenerator, writer: WriterAgent,
+                 grounding: GroundingService | None = None) -> None:
         self._store = store
         self._gateway = gateway
         self._direction = direction
@@ -40,6 +54,7 @@ class StoryService:
         self._blueprint = BlueprintBuilder(gateway)
         self._consistency = ConsistencyChecker(gateway)
         self._narrative = NarrativeUpdater(gateway)
+        self._grounding = grounding or GroundingService()
 
     def _append_timeline(self, story: Story, decision, no: int, content: str) -> None:
         """把刚生成的这一剧情拍追加进时间线（复盘账本），不触碰世界历史线 world.history。"""
@@ -71,17 +86,44 @@ class StoryService:
         lint, consistency = await self._quality(premise, synopsis, content, facts=facts)
         return {"lint": lint, "consistency": consistency}
 
+    async def _auto_style(self, premise: str, synopsis: str) -> str:
+        """根据前提与简介，让模型挑一套最贴切的文风；失败时回退默认文风。"""
+        system = (
+            "你是小说文风选择器。根据小说前提与简介，从给定文风里挑出最贴合的一种，"
+            "用于决定整本书的文字腔调。只输出一个文风 id（英文字母，不要标点、不要解释）。"
+        )
+        user = (
+            f"可选文风：\n{style_choice_text()}\n\n"
+            f"【小说前提】{premise}\n【小说简介】{synopsis}\n\n最贴合的文风 id："
+        )
+        try:
+            raw = await self._gateway.complete(task="init", system=system, user=user)
+            return match_style_id(raw) or DEFAULT_STYLE_ID
+        except Exception:
+            return DEFAULT_STYLE_ID
+
     async def create(self, premise: str, style_profile_id: str | None = None) -> Story:
         synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
+        chosen = (style_profile_id or "").strip()
+        if not chosen or chosen == "auto":
+            chosen = await self._auto_style(premise, synopsis)
         story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip(),
-                      style_profile_id=get_style(style_profile_id).id)
+                      style_profile_id=get_style(chosen).id)
+
+        # 真实世界事实基座：检索内置知识库（可选联网），把命中真实人物/产品的事实注入蓝图
+        grounding_res = await self._grounding.resolve(premise, synopsis=synopsis)
+        story.grounding = grounding_res.facts
 
         # 前置构建：世界观 / 历史线 / 角色 / 伏笔种子（不再产出预设卷章大纲）
-        bp = await self._blueprint.build(premise=premise, synopsis=synopsis)
+        bp = await self._blueprint.build(
+            premise=premise, synopsis=synopsis,
+            grounding=self._grounding.facts_text(grounding_res),
+        )
         story.world = bp.get("world") or {}
         story.history = bp.get("history") or []
         story.characters = bp.get("characters") or []
         story.foreshadows = init_foreshadows(bp.get("foreshadow_seeds") or [])
+        story.relations = bp.get("relationships") or []
 
         decision = story.milestone()
         decision.cards = await self._direction.generate(
@@ -126,10 +168,12 @@ class StoryService:
         if last_no < 1 or decision is None or not decision.applied:
             raise ValueError("没有可撤销的上一步")
 
-        # 还原角色/伏笔到本步推进前
+        # 还原角色/伏笔/关系到本步推进前（relations 用键存在性判断，空列表也是合法回滚值）
         if decision.rollback:
             story.characters = decision.rollback.get("characters") or story.characters
             story.foreshadows = decision.rollback.get("foreshadows") or story.foreshadows
+            if "relations" in decision.rollback:
+                story.relations = decision.rollback["relations"]
 
         # 移除本步生成的正文与时间线条目
         story.passages = [p for p in story.passages if p.get("decision_no") != last_no]
@@ -149,7 +193,7 @@ class StoryService:
 
     @staticmethod
     def _rollback_decision(story: Story, decision, decision_no: int) -> None:
-        """决策中途失败时回滚：解锁、移除未持久化的段落/时间线、还原角色与伏笔快照。"""
+        """决策中途失败时回滚：解锁、移除未持久化的段落/时间线、还原角色/伏笔/关系快照。"""
         decision.applied = False
         decision.mode = None
         decision.card_id = None
@@ -159,24 +203,34 @@ class StoryService:
         if decision.rollback:
             story.characters = decision.rollback.get("characters") or story.characters
             story.foreshadows = decision.rollback.get("foreshadows") or story.foreshadows
+            # 空关系列表是合法回滚值，用键存在性而非真值判断
+            if "relations" in decision.rollback:
+                story.relations = decision.rollback["relations"]
         story.next_decision_no = decision_no  # 回到本决策，可重试
 
     async def _advance_state(self, story: Story, direction_spec: DirectionSpec | None,
                              passage: str) -> None:
-        """决策后：若命中变点，让伏笔/角色随这拍剧情推进，成为后续生成/质检的上下文。"""
+        """决策后：按剧情浓度推进伏笔/角色/关系，成为后续生成/质检的上下文。"""
         if direction_spec is None:
             return
-        if not self._narrative.should_run(
-                kind=direction_spec.kind, passage=passage,
-                characters=story.characters, foreshadows=story.foreshadows):
+        plan = self._narrative.advance_plan(
+            kind=direction_spec.kind, passage=passage,
+            characters=story.characters, foreshadows=story.foreshadows,
+        )
+        if not plan.any:
             return
         try:
-            chars, fs = await self._narrative.update(
+            chars, fs, rels = await self._narrative.update(
                 premise=story.premise, synopsis=story.synopsis,
-                characters=story.characters, foreshadows=story.foreshadows, passage=passage,
+                characters=story.characters, foreshadows=story.foreshadows,
+                relations=story.relations, passage=passage,
+                advance_characters=plan.advance_characters,
+                advance_foreshadows=plan.advance_foreshadows,
+                advance_relations=plan.advance_relations,
             )
             story.characters = chars
             story.foreshadows = fs
+            story.relations = rels
         except Exception:
             pass  # 状态更新为辅助步骤，失败不阻断正文流程
 
@@ -195,6 +249,7 @@ class StoryService:
         decision.rollback = {
             "characters": copy.deepcopy(story.characters),
             "foreshadows": copy.deepcopy(story.foreshadows),
+            "relations": copy.deepcopy(story.relations),
         }
 
         tail = story.passages[-1]["content"] if story.passages else ""
@@ -214,7 +269,7 @@ class StoryService:
             next_d = story.advance()
             next_d.cards = await self._direction.generate(
                 premise=story.premise, synopsis=story.synopsis, tail=prose, decision_no=next_d.no,
-                context=build_narrative_context(story),
+                context=build_narrative_context(story), carryover=_pending_hook(direction_spec),
             )
             self._store.save(story)
         except Exception:
@@ -241,6 +296,7 @@ class StoryService:
         decision.rollback = {
             "characters": copy.deepcopy(story.characters),
             "foreshadows": copy.deepcopy(story.foreshadows),
+            "relations": copy.deepcopy(story.relations),
         }
 
         tail = story.passages[-1]["content"] if story.passages else ""
@@ -274,7 +330,7 @@ class StoryService:
             next_d = story.advance()
             next_d.cards = await self._direction.generate(
                 premise=story.premise, synopsis=story.synopsis, tail=content, decision_no=next_d.no,
-                context=build_narrative_context(story),
+                context=build_narrative_context(story), carryover=_pending_hook(direction_spec),
             )
             self._store.save(story)
         except Exception as exc:

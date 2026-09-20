@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from app.services.grounding import GROUNDING_LABEL
 from app.services.store import Story
 
 
@@ -54,6 +55,13 @@ def build_narrative_context(story: Story) -> str:
     for f in story.foreshadows:
         st = status_txt.get(f.get("status"), f.get("status"))
         lines.append(f"- 伏笔({st})：{f.get('text', '')}")
+    if story.grounding:
+        lines.append(GROUNDING_LABEL)
+        lines.extend(f"- {line.lstrip('• ')}" for line in story.grounding)
+    for r in story.relations:
+        a, b, label = r.get("a"), r.get("b"), r.get("label") or ""
+        if a and b:
+            lines.append(f"- 关系：{a} {label or '与'} {b}（{r.get('note') or ''}）")
     return "\n".join(lines)
 
 
@@ -81,5 +89,13 @@ def build_facts(story: Story) -> list[str]:
 
     for f in story.foreshadows:
         facts.append(f"已埋伏笔({f.get('status', 'planted')})：{f.get('text', '')}")
+
+    for line in story.grounding:
+        facts.append(f"真实事实：{line.lstrip('• ')}")
+
+    for r in story.relations:
+        a, b, label = r.get("a"), r.get("b"), r.get("label") or ""
+        if a and b:
+            facts.append(f"设定关系：{a} {label or '与'} {b}（{r.get('note') or ''}）")
 
     return facts

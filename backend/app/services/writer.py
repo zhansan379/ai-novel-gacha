@@ -13,8 +13,16 @@ _WRITER_SYSTEM = """你是长篇小说的正文作者。
 - 避免“理所当然”“值得一提的是”“转眼间”“简直”等 AI 腔与空泛总结
 - 对话符合人物性格，不充当信息倾倒
 - 结构紧凑、有画面感，每段在一个具体场景里推进
-基于故事设定与已确定的剧情方向，续写一段中文正文（200~400 字）。只输出正文本身，不要标题、不要解释。
+  基于故事设定与已确定的剧情方向，续写一段中文正文（700~1000 字）。只输出正文本身，不要标题、不要解释。
 """
+
+_OPENING_GROUNDING = """[开篇落地要求 - 本段是全书第一拍，必须补齐以下设定，无一可省]
+- 主角是谁、叫什么、来自哪个世界/什么身份（若设定是穿越，就写写出处与穿越的来龙去脉）
+- 当前所处时代与地点：让读者能感到这是哪个年代、哪座城市/场景
+- 穿越这个核心事件本身要在画面上出现：从哪来、怎么到的、此刻是刚穿来还是已来一段时间
+- Claude Code 是什么、是怎么跟着主角的、此刻能为主角做什么事
+- 第一个可感知的具体画面与处境，让读者立刻进入这个世界，而不是凭空开始的办公室流水账
+全部按叙事融入交代，禁止一整段干巴巴的设定罗列。"""
 
 _METHODOLOGY = """[写作方法论：展示而非告知]
 本段只对自己负责（局部真实），跨段铺垫与叙事走向由前文设定控制，不在本段硬塞。
@@ -25,6 +33,21 @@ _METHODOLOGY = """[写作方法论：展示而非告知]
 - 5. 一致性：人名、地名、设定前后统一，杜绝混用。
 - 6. 背景要透口，不设路障：借角色视角、现场环境、自然对白让读者进入世界氛围与设定，不假设读者已知背景；但禁止整段设定说明或名词堆砌，交代点到即止、融入叙事。
 """
+
+
+def _direction_plan(direction: DirectionSpec) -> str:
+    """把所选卡的因果规划拼成一段显式要求，喂给正文作者。"""
+    plan = ""
+    if getattr(direction, "cause", None):
+        plan += f"\n【事件诱因（必须先交代如何发生/如何被察觉）】{direction.cause}"
+    if getattr(direction, "aftermath", None):
+        plan += f"\n【事件后果（落定后各方反应与影响，要写到正文里）】{direction.aftermath}"
+    if getattr(direction, "suspense", None):
+        plan += f"\n【本拍悬念（结尾留给读者的钩子，可留白但须指向它）】{direction.suspense}"
+    if getattr(direction, "risk_balance", None):
+        rb = direction.risk_balance
+        plan += f"\n【张力要求】{rb.tension}/10，转折建议：{rb.suggested_turn}"
+    return plan
 
 
 class WriterAgent:
@@ -43,16 +66,17 @@ class WriterAgent:
         ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
         if direction is None:
             return await self._gateway.complete(
-                task="draft", system=system, temperature=style.temperature,
+                task="draft", system=system + _OPENING_GROUNDING, temperature=style.temperature,
                 user=(f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："),
             )
+        plan = _direction_plan(direction)
         extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
         tail_seg = f"【上一段】{tail}\n" if tail else ""
         user = (
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
             f"{tail_seg}"
-            f"【已确定方向】{direction.summary}{extra}{ctx}\n"
+            f"【已确定方向】{direction.summary}{extra}{plan}{ctx}\n"
             "请按此方向续写正文："
         )
         return await self._gateway.complete(task="draft", system=system, temperature=style.temperature, user=user)
@@ -66,14 +90,16 @@ class WriterAgent:
         ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
         if direction is None:
             user = f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："
+            system = system + _OPENING_GROUNDING
         else:
+            plan = _direction_plan(direction)
             extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
             tail_seg = f"【上一段】{tail}\n" if tail else ""
             user = (
                 f"【故事前提】{premise}\n"
                 f"【故事简介】{synopsis}\n"
                 f"{tail_seg}"
-                f"【已确定方向】{direction.summary}{extra}{ctx}\n"
+                f"【已确定方向】{direction.summary}{extra}{plan}{ctx}\n"
                 "请按此方向续写正文："
             )
         stream = self._gateway.stream(task="draft", system=system, user=user,

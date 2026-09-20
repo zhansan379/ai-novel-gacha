@@ -80,6 +80,42 @@ def test_timeline_persists_and_world_history_untouched(tmp_path):
     b.close()
 
 
+def test_relations_persist_round_trip(tmp_path):
+    path = str(tmp_path / "rel.db")
+    story = _sample_story()
+    story.relations = [{"a": "沈惊鸿", "b": "陆沉舟", "label": "师徒", "note": "曾被逐出师门"}]
+    a = SQLiteStore(path)
+    a.save(story)
+    a.close()
+
+    b = SQLiteStore(path)
+    loaded = b.get("s-persist")
+    assert loaded.relations == story.relations
+    b.close()
+
+
+def test_old_row_without_relations_defaults_empty(tmp_path):
+    """旧库写入的 blueprint_json 不含 relations → 读回应回退为空列表。"""
+    path = str(tmp_path / "oldrel.db")
+    a = SQLiteStore(path)
+    story = _sample_story()
+    a.save(story)
+    conn = sqlite3.connect(path)
+    row = conn.execute("SELECT blueprint_json FROM stories WHERE id='s-persist'").fetchone()
+    data = json.loads(row[0])
+    data.pop("relations", None)
+    conn.execute("UPDATE stories SET blueprint_json=? WHERE id='s-persist'",
+                 (json.dumps(data),))
+    conn.commit()
+    conn.close()
+    a.close()
+
+    b = SQLiteStore(path)
+    reloaded = b.get("s-persist")
+    assert reloaded.relations == []
+    b.close()
+
+
 def test_old_row_without_timeline_defaults_empty(tmp_path):
     """旧库写入的 blueprint_json 不含 timeline → 读回应回退为空列表。"""
     path = str(tmp_path / "old.db")

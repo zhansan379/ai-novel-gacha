@@ -39,6 +39,16 @@ class Card(BaseModel):
     label: CardLabel
     rarity: Rarity
     weight: int = Field(ge=1, le=100)
+    # 因果规划三件套：仅作正文生成输入的内部字段（不上卡面）。
+    # 诱因——这个事件为何发生/破绽如何被察觉；后果——落定后对各方的影响与反应；
+    # 悬念——给下一步（落定后的新分歧）留的钩子。
+    # 因果规划三件套：仅作正文生成输入的内部字段（不上卡面）。
+    # 诱因——这个事件为何发生/破绽如何被察觉；后果——落定后对各方的影响与反应；
+    # 悬念——给下一步（落定后的新分歧）留的钩子。schema 层可选以兼容旧存档，
+    # 但生成卡池时必须在 DirectionGenerator 里强制每卡齐全（缺失即抛 ModelError）。
+    cause: str | None = Field(default=None, max_length=120)
+    aftermath: str | None = Field(default=None, max_length=120)
+    suspense: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def _require_risk_balance_for_ssr(self) -> "Card":
@@ -76,6 +86,11 @@ class DirectionSpec(BaseModel):
     scene: str | None = Field(default=None, max_length=120)
     constraints: list[str] = Field(default_factory=list, max_length=5)
     risk_flag: bool = False
+    # 来自所选卡的因果规划，随方向喂给正文，避免正文只能现编诱因与后果
+    cause: str | None = None
+    aftermath: str | None = None
+    suspense: str | None = None
+    risk_balance: RiskBalance | None = None
 
 
 class DecisionMode(str, Enum):
