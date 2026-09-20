@@ -7,8 +7,9 @@ from app.services.direction import DirectionGenerator
 from app.services.story_service import StoryService
 from app.services.store import StoryStore
 from app.services.writer import WriterAgent
+from app.storage.sqlite import SQLiteStore
 
-store = StoryStore()
+store: StoryStore = SQLiteStore(settings.db_path)  # SQLite 持久化（写透 + 缓存）
 gateway = LLMGateway(settings)
 _direction = DirectionGenerator(gateway)
 _writer = WriterAgent(gateway)

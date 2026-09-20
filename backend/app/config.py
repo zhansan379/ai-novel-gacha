@@ -21,5 +21,8 @@ class Settings(BaseSettings):
     openai_compat_base_url: str = "https://api.deepseek.com/v1"
     llm_timeout: float = 60.0
 
+    # 持久化（SQLite）
+    db_path: str = "data/app.db"
+
 
 settings = Settings()

@@ -25,4 +25,4 @@ novel_projects/
 .idea/
 .vscode/
 *.log
-.DS_Store
+.DS_Storebackend/data/

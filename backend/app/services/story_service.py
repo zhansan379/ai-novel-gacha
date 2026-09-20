@@ -30,7 +30,7 @@ class StoryService:
         )
         opening = await self._writer.generate(premise=premise, synopsis=synopsis, direction=None)
         story.passages.append({"no": 1, "decision_no": None, "content": opening.strip()})
-        await self._store.save(story)
+        self._store.save(story)
         return story
 
     def get(self, story_id: str) -> Story:
@@ -67,7 +67,7 @@ class StoryService:
         next_d.cards = await self._direction.generate(
             premise=story.premise, synopsis=story.synopsis, tail=prose, decision_no=next_d.no,
         )
-        await self._store.save(story)
+        self._store.save(story)
         return prose.strip()
 
     @staticmethod

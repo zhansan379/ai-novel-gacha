@@ -134,7 +134,7 @@ async def get_cards(sid: str, no: int = Path(..., ge=1)):
             premise=story.premise, synopsis=story.synopsis,
             tail=(story.passages[-1]["content"] if story.passages else ""), decision_no=no,
         )
-        await registry.store.save(story)
+        registry.store.save(story)
     return CardsResponse(decision_no=no, pool_version=d.pool_version, cards=d.cards)
 
 
