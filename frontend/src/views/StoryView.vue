@@ -34,7 +34,7 @@ function goLore() {
   <section class="story">
     <article class="reader">
       <header class="chapter-head">
-        <p class="book-crumb">命运抽卡 · AI 互动小说</p>
+        <p class="book-crumb">AI 帮你写互动小说</p>
         <h2 class="chapter-title">正文</h2>
         <p class="meta" v-if="!store.loading">
           <span>{{ store.passages.length }} 段</span>

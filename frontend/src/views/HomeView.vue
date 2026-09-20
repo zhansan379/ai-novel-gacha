@@ -153,7 +153,7 @@ async function createStory() {
 <template>
   <section class="home">
     <div class="home-inner">
-      <h1 class="hero-title"><span class="hl">命运抽卡</span> · AI 互动小说</h1>
+      <h1 class="hero-title"><span class="hl">AI 帮你写</span>互动小说</h1>
       <p class="sub">
         输入一句灵感，系统先为你构建世界观、历史与大纲；每个剧情分歧点，你可以
         <strong>抽一张命运卡</strong> 或用 <strong>自由输入</strong> 决定故事去向。
@@ -232,7 +232,6 @@ async function createStory() {
         <p v-else class="shelf-empty">书架是空的——点上方“导入”恢复一本作品，或用开书表单新开一本。</p>
       </section>
 
-      <p class="note">MVP：开书 → 设定/大纲 → 抽卡 → 正文流式 → 质检已可跑通（需在设置面板配置模型）。</p>
     </div>
   </section>
 </template>
@@ -378,7 +377,7 @@ async function createStory() {
 }
 .import-hint {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--muted);
 }
 .btn-import {
   padding: 7px 16px;
@@ -407,15 +406,15 @@ async function createStory() {
   align-items: stretch;
   gap: 22px;
   padding: 16px 20px;
-  background: #fff;
-  border: 1px solid #eef0f3;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 0;
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
   font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   transition: border-color 0.15s, box-shadow 0.2s;
 }
 .book-card:hover {
-  border-color: #d8dee7;
+  border-color: var(--accent);
   box-shadow: 0 6px 16px rgba(16, 24, 40, 0.07);
 }
 /* 左：封面 */
@@ -425,8 +424,8 @@ async function createStory() {
   align-self: flex-start;
   width: 104px;
   height: 140px;
-  border: 1px solid #e5e7eb;
-  background-color: #f7f7f4;
+  border: 1px solid var(--border);
+  background-color: var(--bg-page);
   background-image:
     radial-gradient(circle at 22% 28%, rgba(20, 20, 20, 0.06), transparent 32%),
     radial-gradient(circle at 82% 72%, rgba(20, 20, 20, 0.05), transparent 30%),
@@ -441,7 +440,7 @@ async function createStory() {
   top: 12px;
   left: 10px;
   right: 10px;
-  color: #111;
+  color: var(--text);
   font-size: 12px;
   font-weight: 700;
   line-height: 1.25;
@@ -454,7 +453,7 @@ async function createStory() {
   position: absolute;
   left: 10px;
   bottom: 24px;
-  color: #111;
+  color: var(--text);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 1px;
@@ -495,7 +494,7 @@ async function createStory() {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
-  color: #111;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -527,16 +526,16 @@ async function createStory() {
   background: #0f55e6;
 }
 .btn-secondary {
-  background: #fff;
-  border: 1px solid #d1d5db;
-  color: #374151;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--muted);
 }
 .btn-secondary:hover {
-  border-color: #b6bcc7;
-  color: #111;
+  border-color: var(--accent);
+  color: var(--text);
 }
 .btn-danger {
-  background: #fff;
+  background: var(--bg-card);
   border: 1px solid #fca5a5;
   color: #dc2626;
 }
@@ -550,8 +549,8 @@ async function createStory() {
 }
 .btn-secondary:hover,
 .btn-secondary.on {
-  border-color: #b6bcc7;
-  color: #111;
+  border-color: var(--accent);
+  color: var(--text);
 }
 .export-menu {
   position: absolute;
@@ -560,8 +559,8 @@ async function createStory() {
   display: flex;
   flex-direction: column;
   min-width: 168px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 0;
   box-shadow: 0 8px 22px rgba(16, 24, 40, 0.12);
   z-index: 20;
@@ -573,13 +572,13 @@ async function createStory() {
   text-align: left;
   padding: 8px 10px;
   font-size: 13px;
-  color: #374151;
+  color: var(--muted);
   cursor: pointer;
   font-family: inherit;
 }
 .export-menu button:hover {
-  background: #f5f6f8;
-  color: #111;
+  background: var(--soft);
+  color: var(--text);
 }
 .opening {
   margin-top: 18px;
