@@ -100,3 +100,24 @@ export interface StorySummary {
   passages: string[]
   next_decision_no: number
 }
+
+// ---- 前置构建蓝图 ----
+export interface WorldSetting {
+  rules?: string[]
+  geography?: string
+  power_system?: string
+  factions?: string[]
+  constraints?: string[]
+}
+export interface HistoryEvent { era: string; event: string; impact: string }
+export interface CharacterCard {
+  name: string; role: string; goal?: string; inner_need?: string; flaw?: string; trait?: string
+}
+export interface OutlineItem { no: number; type: string; title: string; goal: string; foreshadow?: string }
+export interface Blueprint {
+  story_id: string
+  world: WorldSetting
+  history: HistoryEvent[]
+  characters: CharacterCard[]
+  outline: OutlineItem[]
+}

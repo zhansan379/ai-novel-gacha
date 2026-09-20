@@ -3,7 +3,7 @@
  * 类型与《接口契约》一致，远期由 OpenAPI 生成替换。
  */
 import type {
-  ApplyResponse, CardsResponse, DrawResponse, StoryCreated, StorySummary,
+  ApplyResponse, Blueprint, CardsResponse, DrawResponse, StoryCreated, StorySummary,
 } from '../types'
 
 const BASE = '/v1'
@@ -31,6 +31,8 @@ export const api = {
     req<StoryCreated>('/stories', { method: 'POST', body: JSON.stringify({ premise }) }),
 
   getStory: (storyId: string) => req<StorySummary>(`/stories/${storyId}`),
+
+  getBlueprint: (storyId: string) => req<Blueprint>(`/stories/${storyId}/blueprint`),
 
   getCards: (storyId: string, decisionNo: number) =>
     req<CardsResponse>(`/stories/${storyId}/decisions/${decisionNo}/cards`),

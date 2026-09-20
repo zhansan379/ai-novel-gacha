@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDecisionStore } from '../stores/decision'
+import BlueprintPanel from '../components/BlueprintPanel.vue'
 import DecisionPanel from '../components/DecisionPanel.vue'
 
 const route = useRoute()
@@ -24,6 +25,8 @@ onMounted(async () => {
     </header>
 
     <blockquote v-if="store.synopsis" class="synopsis">{{ store.synopsis }}</blockquote>
+
+    <BlueprintPanel v-if="store.storyId" :story-id="store.storyId" />
 
     <div class="layout">
       <div class="prose">
