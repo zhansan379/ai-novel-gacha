@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/client'
 import BlueprintPanel from '../components/BlueprintPanel.vue'
 import KnowledgeGraph from '../components/KnowledgeGraph.vue'
+import GroundingPanel from '../components/GroundingPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,6 +30,7 @@ onMounted(async () => {
       </div>
     </header>
     <blockquote v-if="synopsis" class="lore-synop">{{ synopsis }}</blockquote>
+    <GroundingPanel :story-id="storyId" />
     <KnowledgeGraph :story-id="storyId" />
     <BlueprintPanel :story-id="storyId" />
   </section>

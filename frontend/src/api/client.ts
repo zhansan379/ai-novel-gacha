@@ -3,8 +3,8 @@
  * 类型与《接口契约》一致，远期由 OpenAPI 生成替换。
  */
 import type {
-  ApplyResponse, Blueprint, CardsResponse, DrawResponse, ModelsConfig, StoryCreated,
-  StoryList, StorySnapshot, StorySummary, StyleProfile, TimelineResponse,
+  ApplyResponse, Blueprint, CardsResponse, CreateTaskAccepted, CreateTaskStatus, DrawResponse,
+  ModelsConfig, StoryList, StorySnapshot, StorySummary, StyleProfile, TimelineResponse,
 } from '../types'
 
 const BASE = '/v1'
@@ -66,12 +66,30 @@ export async function consumeSSE(res: Response, onEvent: (ev: SSEEvent) => void)
   }
 }
 
+/** 轮询开书任务直到终态（done/error）。任务丢失会抛错（如服务重启后 404）。 */
+export async function waitForCreateTask(
+  taskId: string,
+  opts: { pollMs?: number; onStatus?: (s: CreateTaskStatus) => void } = {},
+): Promise<CreateTaskStatus> {
+  const pollMs = opts.pollMs ?? 1500
+  for (;;) {
+    const s: CreateTaskStatus = await api.getCreateTaskStatus(taskId)
+    opts.onStatus?.(s)
+    if (s.status === 'done' || s.status === 'error') return s
+    await new Promise((r) => setTimeout(r, pollMs))
+  }
+}
+
 export const api = {
+  /** 开书：提交后台异步任务，立即返回 task_id；完成后经轮询 getCreateTaskStatus 取结果。 */
   createStory: (premise: string, styleProfileId?: string) =>
-    req<StoryCreated>('/stories', {
+    req<CreateTaskAccepted>('/stories', {
       method: 'POST',
       body: JSON.stringify({ premise, style_profile_id: styleProfileId }),
     }),
+
+  getCreateTaskStatus: (taskId: string) =>
+    req<CreateTaskStatus>(`/stories/tasks/${taskId}`),
 
   getStyles: async () => {
     const res = await req<{ styles: StyleProfile[] }>('/styles')

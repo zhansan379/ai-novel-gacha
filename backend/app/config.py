@@ -36,5 +36,13 @@ class Settings(BaseSettings):
     # 持久化（SQLite）
     db_path: str = "data/app.db"
 
+    # 异步开书任务：并发闸门 + 循环队列清扫（页面刷新安全；服务重启会丢未完成任务）
+    task_concurrency: int = 4        # 全局同时运行的开书任务/内部扇出上限（保护厂商限流）
+    task_ttl_seconds: int = 3600     # 已完成/出错任务保活秒数，到期清扫释放内存
+    task_max_retained: int = 200     # 最多保留的任务条数，超出优先淘汰最旧的
+    # 单书内部扇出：按依赖 DAG 分波并行（自动文风∥检索∥骨架；再并行世界观/历史/角色/伏笔；卡池∥开篇）。
+    # 关闭则退回旧的单调用串联（约省 4 路 LLM 调用，慢但省 token）。
+    book_fanout: bool = True
+
 
 settings = Settings()

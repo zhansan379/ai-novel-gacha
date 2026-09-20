@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/client'
 import { useDecisionStore } from '../stores/decision'
@@ -14,25 +14,6 @@ const stories = ref<StoryListItem[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const actionMsg = ref('')
 
-// 开书阶段提示（本地时序切换，非真实后端进度，仅供视觉反馈）
-const PHASES = ['构建世界观与角色', '埋伏笔 · 织历史线', '抽取首轮命运卡', '撰写开篇正文']
-const phase = ref(PHASES[0])
-let phaseTimer: number | undefined
-
-watch(() => store.loading, (loading) => {
-  clearInterval(phaseTimer)
-  if (loading) {
-    let i = 0
-    phase.value = PHASES[i]
-    phaseTimer = window.setInterval(() => {
-      i = (i + 1) % PHASES.length
-      phase.value = PHASES[i]
-    }, 1100)
-  } else {
-    phase.value = PHASES[0]
-  }
-})
-
 onMounted(async () => {
   try {
     styles.value = await api.getStyles()
@@ -41,6 +22,7 @@ onMounted(async () => {
     styles.value = []
   }
   await loadStories()
+  store.resumePendingCreate() // 刷新恢复仍在进行中的异步开书任务
 })
 
 async function loadStories() {
@@ -139,7 +121,7 @@ async function onImportFile(e: Event) {
 }
 
 async function createStory() {
-  if (store.loading) return
+  if (store.creating) return
   await store.create(
     premise.value || '一个少年在雨夜的旧城、被迫背负一个不为人知的秘密',
     selectedStyle.value || undefined,
@@ -166,14 +148,15 @@ async function createStory() {
           maxlength="200"
           placeholder="例：一个失忆的杀手想找回身份……（留空则随机开书）"
         />
-        <button class="btn primary big" :disabled="store.loading" @click="createStory">
-          {{ store.loading ? '开书中…' : '抽 卡 开 书' }}
+        <button class="btn primary big" :disabled="store.creating" @click="createStory">
+          {{ store.creating ? '开书中…' : '抽 卡 开 书' }}
         </button>
       </div>
 
-      <div v-if="store.loading" class="opening">
+      <div v-if="store.creating" class="opening">
         <span class="spinner" aria-hidden="true"></span>
-        <span class="phase">{{ phase }}</span>
+        <span class="phase">{{ store.createStage || '开书任务已提交，等待后端响应…' }}</span>
+        <span v-if="store.creatingTaskId" class="resumed">（后台任务 · 刷新页面自动恢复）</span>
         <span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>
       </div>
 

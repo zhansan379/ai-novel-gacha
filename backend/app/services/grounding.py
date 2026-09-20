@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from app.config import Settings
 
-from .vector_kb import ChromaKBFacade, build_chroma_facade
+from .vector_kb import KNOWN_ENTITIES, ChromaKBFacade, build_chroma_facade
 
 # 常见 ASCII 噪声词，不作为联网检索候选
 _STOP = {
@@ -26,6 +26,55 @@ _STOP = {
     "set", "use", "new", "old", "the", "and", "for", "with", "from", "this", "that", "you",
     "your", "our", "his", "her", "its", "are", "was", "not", "but", "then", "when", "yuan",
 }
+
+
+def _named_in(text_lower: str, entity: str) -> bool:
+    """当前文本是否点到该真实实体的名字（拉丁/中文都忽略大小写与空白差异）。"""
+    t = re.sub(r"\s+", "", text_lower)
+    e = re.sub(r"\s+", "", (entity or "").lower())
+    return bool(e) and e in t
+
+
+def filter_grounding(text: str, lines: list[str]) -> list[str]:
+    """读时过滤已存的事实行：只留那些"实体名真正出现在故事文本里"的行。
+
+    用于让此前误注入的事实立即从界面消失（老故事不必重建）；新故事创建时已由
+    resolve 的门槛把关，这里对它们是无操作的。
+    """
+    t = re.sub(r"\s+", "", (text or "").lower())
+    out: list[str] = []
+    for raw in lines:
+        stripped = raw.lstrip("•·").strip()
+        if not stripped:
+            continue
+        if stripped.startswith("网络检索"):
+            m = re.search(r"『([^』]+)』", stripped)
+            token = (m.group(1) if m else "").replace(" ", "")
+            if token and token.lower() in t:
+                out.append(raw)
+            continue
+        name = re.split(r"[：:]", stripped, 1)[0].strip()
+        if name and re.sub(r"\s+", "", name.lower()) in t:
+            out.append(raw)
+    return out
+
+
+def filter_real_entity_history(text: str, history: list[dict]) -> list[dict]:
+    """读时过滤世界历史线：书里没点任何真实实体时，剔除历史线中混入的真实人物/公司条目。
+
+    免得在纯架空/奇幻故事的历史线里出现"刘强东1998年创办京东"这类被误注入的史实。
+    """
+    t = re.sub(r"\s+", "", (text or "").lower())
+    named = {re.sub(r"\s+", "", e.lower()) for e in KNOWN_ENTITIES if _named_in(t, e)}
+    if named:
+        return history  # 书里确实点了真实实体，历史线交给作者自洽，不越权删除
+    out: list[dict] = []
+    for h in history:
+        joined = re.sub(r"\s+", "", "".join(str(h.get(k, "")) for k in ("era", "event", "impact")).lower())
+        if any(e in joined for e in {re.sub(r"\s+", "", x.lower()) for x in KNOWN_ENTITIES}):
+            continue
+        out.append(h)
+    return out
 
 # 命中的真实事实都挂在这一约束标签下，防止被当作虚构
 GROUNDING_LABEL = ("【真实事实基座（须尊重）】以下事实来自内置知识库或联网检索，是可核实的真实信息。"
@@ -111,11 +160,17 @@ class GroundingService:
         text = f"{premise}\n{synopsis}"
         res = GroundingResult()
         hits = self._vector.query(text) if self._vector is not None else []
+        lower = text.lower()
         for item in hits:
+            ent = (item["entity"] or "").strip()
+            # 阈值判断：只有当当前文本真正点到该真实实体的名字才注入。
+            # 纯架空书并未点名任何真实实体 → 天然 zero 注入，不再把无关履历/守则塞进剧情与历史线。
+            if not ent or not _named_in(lower, ent):
+                continue
             fact = item["fact"]
-            res.facts.append(f"• {fact if '：' in fact else item['entity'] + '：' + fact}")
-            if item["entity"] and item["entity"] not in res.labels:
-                res.labels.append(item["entity"])
+            res.facts.append(f"• {fact if '：' in fact else ent + '：' + fact}")
+            if ent not in res.labels:
+                res.labels.append(ent)
 
         web = self._web
         if web and web.enabled:

@@ -17,6 +17,7 @@ def _fresh_store(tmp_path):
     registry.gateway.settings.api_keys = {}
     registry.gateway.settings.base_urls = {}
     registry.story_service._store = store  # story_service 持有同一存储实例
+    registry.tasks.reset()  # 清空异步开书任务表，避免跨用例串状态
     yield
     store.close()
     keychain.close()

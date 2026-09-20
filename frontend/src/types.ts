@@ -47,6 +47,21 @@ export interface StoryCreated {
   style_profile_id: string
 }
 
+/** POST /stories 立即返回：开书任务已受理。 */
+export interface CreateTaskAccepted {
+  task_id: string
+  status: string
+}
+
+/** GET /stories/tasks/{id} 轮询结果：done 时带 result(StoryCreated)，error 时带 error。 */
+export interface CreateTaskStatus {
+  task_id: string
+  status: 'pending' | 'running' | 'done' | 'error'
+  stage?: string | null
+  result?: StoryCreated | null
+  error?: { code: string; message: string } | null
+}
+
 export interface StoryListItem {
   story_id: string
   premise: string
@@ -178,4 +193,5 @@ export interface Blueprint {
   style?: string
   foreshadows?: ForeshadowItem[]
   relations?: RelationEdge[]
+  grounding?: string[]
 }

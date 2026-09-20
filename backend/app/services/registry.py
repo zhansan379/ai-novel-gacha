@@ -8,6 +8,7 @@ from app.services.grounding import make_grounding
 from app.services.keychain import Keychain
 from app.services.story_service import StoryService
 from app.services.store import StoryStore
+from app.services.tasks import TaskManager
 from app.services.writer import WriterAgent
 from app.storage.sqlite import SQLiteStore
 
@@ -18,3 +19,4 @@ _direction = DirectionGenerator(gateway)
 _writer = WriterAgent(gateway)
 _grounding = make_grounding(settings, gateway=gateway)
 story_service = StoryService(store, gateway, _direction, _writer, grounding=_grounding)
+tasks = TaskManager()                              # 异步开书任务注册表（后台执行 + 轮询状态）

@@ -1,10 +1,12 @@
 """故事服务：开书初始化 + 决策应用（生成方向对应的下一段正文）。"""
 from __future__ import annotations
 
+import asyncio
 import copy
 import uuid
 
 from app.consistency.checker import ConsistencyChecker
+from app.config import settings
 from app.deslop import scan as deslop_scan
 from app.llm import LLMGateway
 from app.schemas import DirectionKind, DirectionSpec
@@ -19,6 +21,11 @@ from app.services.writer import WriterAgent
 
 _INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），
 说明核心设定、主角目标与可能的冲突走向。只输出简介本身。"""
+
+
+async def _noop() -> None:
+    """返回 None 的占位协程（波1 无需自动文风时占位，配合 asyncio.gather）。"""
+    return None
 
 
 def _beat_summary(text: str, limit: int = 60) -> str:
@@ -102,19 +109,40 @@ class StoryService:
         except Exception:
             return DEFAULT_STYLE_ID
 
-    async def create(self, premise: str, style_profile_id: str | None = None) -> Story:
+    async def create(self, premise: str, style_profile_id: str | None = None,
+                     on_stage=None) -> Story:
+        """开书：生成简介 → 构建设定(含单书内部扇出) → 首拍卡池+开篇 → 质检 → 落库。
+
+        on_stage: 可选阶段回调（如 `async def on_stage(stage: str)`），供异步任务上报真实进度。
+        """
+        on_stage = on_stage if callable(on_stage) else (lambda _stage: None)
+        on_stage("生成简介中")
         synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
+
+        story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip())
+        if settings.book_fanout:
+            await self._create_fanout(story, premise, synopsis, style_profile_id, on_stage)
+        else:
+            await self._create_legacy(story, premise, synopsis, style_profile_id, on_stage)
+
+        on_stage("保存中")
+        self._store.save(story)
+        return story
+
+    async def _create_legacy(self, story: Story, premise: str, synopsis: str,
+                             style_profile_id: str | None, on_stage) -> None:
+        """单调用串联回退路径（book_fanout=False）：约省 4 路 LLM 调用，但更慢。"""
         chosen = (style_profile_id or "").strip()
         if not chosen or chosen == "auto":
+            on_stage("匹配文风中")
             chosen = await self._auto_style(premise, synopsis)
-        story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip(),
-                      style_profile_id=get_style(chosen).id)
+        story.style_profile_id = get_style(chosen).id
 
-        # 真实世界事实基座：检索内置知识库（可选联网），把命中真实人物/产品的事实注入蓝图
+        on_stage("检索事实中")
         grounding_res = await self._grounding.resolve(premise, synopsis=synopsis)
         story.grounding = grounding_res.facts
 
-        # 前置构建：世界观 / 历史线 / 角色 / 伏笔种子（不再产出预设卷章大纲）
+        on_stage("构建世界观蓝图中")
         bp = await self._blueprint.build(
             premise=premise, synopsis=synopsis,
             grounding=self._grounding.facts_text(grounding_res),
@@ -126,6 +154,7 @@ class StoryService:
         story.relations = bp.get("relationships") or []
 
         decision = story.milestone()
+        on_stage("生成卡池与开篇中")
         decision.cards = await self._direction.generate(
             premise=premise, synopsis=synopsis, tail="", decision_no=decision.no,
             context=build_narrative_context(story),
@@ -133,11 +162,75 @@ class StoryService:
         opening = await self._writer.generate(premise=premise, synopsis=synopsis, direction=None,
                                               style_profile_id=story.style_profile_id,
                                               context=build_narrative_context(story))
-        lint, consistency = await self._quality(premise, synopsis, opening, facts=build_facts(story))
+        await self._finish_opening(story, opening, premise, synopsis)
+
+    async def _create_fanout(self, story: Story, premise: str, synopsis: str,
+                             style_profile_id: str | None, on_stage) -> None:
+        """单书内部扇出：按依赖 DAG 分波并行，波内 asyncio.gather 并发、波间汇合。
+
+        波0 简介(已在 create 完成)；波1 文风∥检索∥骨架；波2 世界观∥历史∥角色∥伏笔；
+        波3 关系账本(依赖角色名)；波4 卡池∥开篇；波5 质检。骨架锚点保证并行分支一致。
+        """
+        want_auto = not (style_profile_id or "").strip() or (style_profile_id or "").strip() == "auto"
+
+        # 波1：自动文风(需要才调) ‖ 实事检索 ‖ 世界观骨架
+        on_stage("定文风·检索事实·构先天骨中")
+        style_task = asyncio.create_task(self._auto_style(premise, synopsis)) if want_auto else None
+        grounding_task = asyncio.create_task(self._grounding.resolve(premise, synopsis=synopsis))
+        skeleton_task = asyncio.create_task(
+            self._blueprint.build_skeleton(premise=premise, synopsis=synopsis))
+        auto_style, grounding_res, skeleton = await asyncio.gather(
+            style_task or _noop(), grounding_task, skeleton_task)
+        chosen = auto_style if want_auto else ((style_profile_id or "").strip() or DEFAULT_STYLE_ID)
+        story.style_profile_id = get_style(chosen).id
+        story.grounding = grounding_res.facts
+        grounding_txt = self._grounding.facts_text(grounding_res)
+
+        # 波2：世界观细节/历史线/角色/伏笔种子 互不依赖，并行生成，统一对齐骨架
+        on_stage("并行细化世界观·历史·角色·伏笔中")
+        world_task = asyncio.create_task(self._blueprint.build_world(
+            premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
+        history_task = asyncio.create_task(self._blueprint.build_history(
+            premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
+        chars_task = asyncio.create_task(self._blueprint.build_characters(
+            premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
+        fs_task = asyncio.create_task(self._blueprint.build_foreshadows(
+            premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
+        world, history, characters, foreshadow_seeds = await asyncio.gather(
+            world_task, history_task, chars_task, fs_task)
+        story.world = world or {}
+        story.world.setdefault("factions", skeleton.get("factions") or [])
+        story.history = history or []
+        story.characters = characters or []
+        story.foreshadows = init_foreshadows(foreshadow_seeds or [])
+
+        # 波3：关系账本依赖角色名，后置等待
+        on_stage("补齐关系账本中")
+        story.relations = await self._blueprint.build_relationships(
+            premise=premise, synopsis=synopsis, grounding=grounding_txt,
+            skeleton=skeleton, characters=story.characters) or []
+
+        # 波4：首拍卡池 ∥ 开篇正文（都依赖已落定的设定，但彼此独立）
+        decision = story.milestone()
+        ctx = build_narrative_context(story)
+        on_stage("并行生成卡池与开篇中")
+        cards_task = asyncio.create_task(self._direction.generate(
+            premise=premise, synopsis=synopsis, tail="", decision_no=decision.no, context=ctx))
+        opening_task = asyncio.create_task(self._writer.generate(
+            premise=premise, synopsis=synopsis, direction=None,
+            style_profile_id=story.style_profile_id, context=ctx))
+        cards, opening = await asyncio.gather(cards_task, opening_task)
+        decision.cards = cards
+
+        # 波5：质检开篇（波内一条 LLM 校验，保持串行在正文之后）
+        await self._finish_opening(story, opening, premise, synopsis)
+
+    async def _finish_opening(self, story: Story, opening: str, premise: str, synopsis: str) -> None:
+        """开篇后续：质检 + 挂到故事首拍。fanout/legacy 共用。"""
+        lint, consistency = await self._quality(
+            premise, synopsis, opening, facts=build_facts(story))
         story.passages.append({"no": 1, "decision_no": None, "content": opening.strip(),
                                "lint": lint, "consistency": consistency})
-        self._store.save(story)
-        return story
 
     def get(self, story_id: str) -> Story:
         return self._store.get(story_id)

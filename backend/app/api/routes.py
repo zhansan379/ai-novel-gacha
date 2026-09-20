@@ -73,6 +73,19 @@ class StoryCreated(BaseModel):
     style_profile_id: str
 
 
+class CreateTaskAccepted(BaseModel):
+    task_id: str
+    status: str = "pending"
+
+
+class CreateTaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    stage: str | None = None
+    result: dict | None = None      # 终态 done 时携带 StoryCreated 同形态数据
+    error: dict | None = None       # 终态 error 时携带 {code, message}
+
+
 class CardsResponse(BaseModel):
     decision_no: int
     pool_version: int
@@ -159,14 +172,29 @@ def _sse(name: str, data: dict) -> str:
 
 
 # ---------- 端点 ----------
-@router.post("/stories", response_model=StoryCreated, status_code=201, tags=["story"])
+@router.post("/stories", status_code=202, response_model=CreateTaskAccepted, tags=["story"])
 async def create_story(body: CreateStoryRequest):
-    story = await registry.story_service.create(body.premise, style_profile_id=body.style_profile_id)
-    d = _decision_of(story, 1)
-    opening = story.passages[0]["content"]
-    return StoryCreated(story_id=story.id, synopsis=story.synopsis, opening=opening,
-                        decision_no=d.no, cards=d.cards,
-                        style_profile_id=story.style_profile_id)
+    """开书：提交即为后台异步任务，立即返回 task_id（penging）。
+
+    完成后经 GET /v1/stories/tasks/{task_id} 轮询取 StoryCreated 结果；前端据此跳转。
+    详情见 app/services/tasks.py。
+    """
+    def job(on_stage):
+        return registry.story_service.create(
+            body.premise, style_profile_id=body.style_profile_id, on_stage=on_stage)
+    task_id = registry.tasks.submit(job, premise=body.premise)
+    return CreateTaskAccepted(task_id=task_id, status="pending")
+
+
+@router.get("/stories/tasks/{task_id}", response_model=CreateTaskStatusResponse, tags=["story"])
+async def get_create_task(task_id: str):
+    """查询异步开书任务状态：status=pending/running/done/error；done 带 result，error 带 error。"""
+    t = registry.tasks.get(task_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail={"code": "TASK_NOT_FOUND",
+                                                     "message": "开书任务不存在或已过期（服务可能重启）"})
+    return CreateTaskStatusResponse(task_id=t.task_id, status=t.status.value,
+                                    stage=t.stage, result=t.result, error=t.error)
 
 
 @router.get("/stories", response_model=StoryList, tags=["story"])
@@ -299,16 +327,24 @@ async def get_timeline(sid: str = Path(...)):
 
 @router.get("/stories/{sid}/blueprint", tags=["story"])
 async def get_blueprint(sid: str = Path(...)):
-    """读取前置构建：世界观 / 历史线 / 角色 / 卷·章大纲。"""
+    """读取前置构建：世界观 / 历史线 / 角色 / 卷·章大纲。
+
+    真实事实基座（grounding）与世界历史线做读时相关性过滤：只呈现书里点过名的
+    真实实体相关内容，剔除此前误注入的无关史实（如纯架空书历史线里混入的
+    真实企业家事记）。
+    """
     story = decision_path(sid)
+    from app.services.grounding import filter_grounding, filter_real_entity_history
+    storyline = f"{story.premise}\n{story.synopsis}"
     return {
         "story_id": story.id,
         "world": story.world,
-        "history": story.history,
+        "history": filter_real_entity_history(storyline, story.history),
         "characters": story.characters,
         "style": story.style_profile_id,
         "foreshadows": story.foreshadows,
         "relations": story.relations,
+        "grounding": filter_grounding(storyline, story.grounding),
     }
 
 

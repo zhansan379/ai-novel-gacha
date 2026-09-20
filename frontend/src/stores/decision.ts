@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { api, consumeSSE } from '../api/client'
+import { api, consumeSSE, waitForCreateTask } from '../api/client'
 import type { Card, ConsistencyResult, DecisionMode, LintIssue } from '../types'
 
 function errMsg(e: unknown): string {
@@ -73,26 +73,89 @@ export const useDecisionStore = defineStore('decision', () => {
   const lastConsistency = ref<ConsistencyResult | null>(null)
   const streamingText = ref('')
 
-  /** 用灵感开一本新书（后端完成初始卡池 + 开篇）。 */
+  // 异步开书：独立于 loading（避免卡住抽卡/撤销按钮），进程内轮询真实阶段，刷新可从 localStorage 恢复
+  const PENDING_CREATE_KEY = 'choice_novel:pending_create'
+  const creating = ref(false)
+  const creatingTaskId = ref<string | null>(null)
+  const createStage = ref('')
+  function _savePendingCreate(taskId: string, premise: string) {
+    try { localStorage.setItem(PENDING_CREATE_KEY, JSON.stringify({ task_id: taskId, premise })) } catch { /* ignore */ }
+  }
+  function _clearPendingCreate() {
+    try { localStorage.removeItem(PENDING_CREATE_KEY) } catch { /* ignore */ }
+  }
+
+  /** 用灵感开一本新书：提交后台任务 → 持久化 task_id → 轮询真实进度 → done 后写入开篇与首轮卡池。 */
   async function create(premise: string, styleProfileId?: string) {
     const text = premise.trim()
     if (!text) return
-    loading.value = true
+    creating.value = true
+    creatingTaskId.value = null
+    createStage.value = ''
+    title.value = text
     error.value = null
     try {
-      const s = await api.createStory(text, styleProfileId)
-      storyId.value = s.story_id
-      title.value = text
-      synopsis.value = s.synopsis
-      passages.value = [s.opening]
-      decisionNo.value = s.decision_no
-      cards.value = s.cards
-      syncBookmark()
-      _resetDecisionLocalState()
+      const task = await api.createStory(text, styleProfileId)
+      creatingTaskId.value = task.task_id
+      _savePendingCreate(task.task_id, text)
+      const st = await waitForCreateTask(task.task_id, {
+        onStatus: (s) => { createStage.value = s.stage ?? '' },
+      })
+      if (st.status === 'error') {
+        throw new Error(st.error?.message ?? '开书失败')
+      }
+      _applyCreateResult(st.result!)
+      _clearPendingCreate()
     } catch (e) {
+      // 404（服务重启丢失）等：清掉遗留任务记录，避免下次刷新再空轮询
+      _clearPendingCreate()
       error.value = errMsg(e)
     } finally {
-      loading.value = false
+      creating.value = false
+      creatingTaskId.value = null
+      createStage.value = ''
+    }
+  }
+
+  function _applyCreateResult(s: { story_id: string; synopsis: string; opening: string; decision_no: number; cards: Card[]; style_profile_id?: string }) {
+    storyId.value = s.story_id
+    title.value = title.value || s.story_id
+    synopsis.value = s.synopsis
+    passages.value = [s.opening]
+    decisionNo.value = s.decision_no
+    cards.value = s.cards
+    syncBookmark()
+    _resetDecisionLocalState()
+  }
+
+  /** 刷新/重进首页时恢复仍在进行中的开书任务（localStorage 里的 task_id）。 */
+  async function resumePendingCreate() {
+    if (creating.value) return
+    let rec: { task_id?: string; premise?: string } | null = null
+    try { rec = JSON.parse(localStorage.getItem(PENDING_CREATE_KEY) || 'null') } catch { rec = null }
+    const taskId = rec?.task_id
+    if (!taskId || !rec) return
+    creating.value = true
+    creatingTaskId.value = taskId
+    createStage.value = ''
+    if (rec.premise) title.value = rec.premise
+    error.value = null
+    try {
+      const st = await waitForCreateTask(taskId, {
+        onStatus: (s) => { createStage.value = s.stage ?? '' },
+      })
+      if (st.status === 'error') {
+        throw new Error(st.error?.message ?? '开书失败')
+      }
+      _applyCreateResult(st.result!)
+      _clearPendingCreate()
+    } catch (e) {
+      _clearPendingCreate()
+      error.value = errMsg(e)
+    } finally {
+      creating.value = false
+      creatingTaskId.value = null
+      createStage.value = ''
     }
   }
 
@@ -267,13 +330,15 @@ export const useDecisionStore = defineStore('decision', () => {
     lastAction.value = null; nextDecisionNo.value = null
     lastLint.value = []; lastConsistency.value = null
     streamingText.value = ''
+    _clearPendingCreate(); creating.value = false; creatingTaskId.value = null; createStage.value = ''
   }
 
   return {
     storyId, title, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
     loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
+    creating, creatingTaskId, createStage,
     drawOpen, toggleDraw, closeDraw,
     bookmarked, toggleBookmark, getBookmarkedIds, setBookmarked,
-    create, load, draw, apply, applyCard, undo, next, pickLocal, reset,
+    create, resumePendingCreate, load, draw, apply, applyCard, undo, next, pickLocal, reset,
   }
 })

@@ -136,6 +136,9 @@ _SEED = [
     },
 ]
 
+# 内置知识库声明的真实实体名。仅这些名字算"真实实体"；判断事实/历史线是否混入真实内容时以它为准。
+KNOWN_ENTITIES: list[str] = [ent["entity"] for ent in _SEED]
+
 
 class ChromaKBFacade:
     """Chroma 持久化向量知识库检索门面。"""

@@ -18,8 +18,10 @@ let chart: ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const hasGraph = ref(false)
+const noEdges = ref(false)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const bpData = ref<Blueprint | null>(null)
 
 const CATEGORIES = [
   { name: '角色', itemStyle: { color: '#1d4ed8' } },
@@ -89,18 +91,25 @@ async function render() {
   try {
     const bp = await api.getBlueprint(props.storyId)
     const { names } = collectNodes(bp)
-    hasGraph.value = names.size > 0 && !!bp.relations?.length
-    if (!hasGraph.value) return
-    await nextTick()
-    if (!el.value) return
-    chart = chart ?? echarts.init(el.value)
-    chart.setOption(buildOption(bp), true)
+    // 只要有已知节点就画；无关系边时退化为只展示孤立角色/势力，不凭空消失
+    hasGraph.value = names.size > 0
+    noEdges.value = !(bp.relations ?? []).length
+    bpData.value = bp
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
 }
+
+/** 数据就绪后创建/更新图表。只在数据与 hasGraph 都成立时执行；用 flush:"post" 保证 el 已挂载。 */
+watch([hasGraph, bpData], async () => {
+  if (!hasGraph.value || !bpData.value) return
+  await nextTick()
+  if (!el.value) return
+  chart = chart ?? echarts.init(el.value)
+  chart.setOption(buildOption(bpData.value), true)
+}, { flush: 'post' })
 
 onMounted(async () => {
   await render()
@@ -128,9 +137,12 @@ watch(() => props.storyId, render)
     <p v-if="loading" class="hint">加载关系图谱…</p>
     <p v-else-if="error" class="err">{{ error }}</p>
     <p v-else-if="!hasGraph" class="hint">暂无关系数据（推进剧情后会逐步生成关系边）</p>
-    <div v-else ref="box" class="kg-box">
-      <div ref="el" class="kg-canvas" />
-    </div>
+    <template v-else>
+      <p v-if="noEdges" class="hint">暂无关系边，以下为已知角色/势力（随剧情推进会连出关系）</p>
+      <div ref="box" class="kg-box">
+        <div ref="el" class="kg-canvas" />
+      </div>
+    </template>
   </section>
 </template>
 
