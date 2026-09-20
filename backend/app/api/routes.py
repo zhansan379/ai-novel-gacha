@@ -418,7 +418,7 @@ async def blind_draw(sid: str, no: int = Path(..., ge=1)):
     _ensure_active(story)
     d = _decision_of(story, no)
     if d.applied:
-        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
     d.cards = await registry.story_service.ensure_cards(story, no)
     if not d.cards:
         raise HTTPException(status_code=409, detail={"code": "STORY_ENDED", "message": "故事已完结，无法生成卡池"})
@@ -429,7 +429,7 @@ async def blind_draw(sid: str, no: int = Path(..., ge=1)):
             story, no, mode="gacha_draw", direction_spec=direction, card_id=card.card_id,
         )
     except DecisionLocked:
-        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
     chap = ChapterInfo(**passage["chapter"]) if passage.get("chapter") else None
     return DrawResponse(decision_no=no, mode="gacha_draw", card=card,
                         direction_spec=direction,
@@ -445,7 +445,7 @@ async def apply_decision(sid: str, no: int, body: AppliesDecision):
     _ensure_active(story)
     d = _decision_of(story, no)
     if d.applied:
-        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
     if body.card_id is not None:
         card = next((c for c in d.cards if c.card_id == body.card_id), None)
         if card is None:
@@ -459,7 +459,7 @@ async def apply_decision(sid: str, no: int, body: AppliesDecision):
             story, no, mode=mode, direction_spec=direction, card_id=body.card_id,
         )
     except DecisionLocked:
-        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
     chap = ChapterInfo(**passage["chapter"]) if passage.get("chapter") else None
     return ApplyResponse(decision_no=no, mode=mode, direction_spec=direction,
                          passage=passage["content"], lint=passage.get("lint", []),
@@ -496,7 +496,7 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
     if body.draw:
         d = _decision_of(story, no)
         if d.applied:
-            raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+            raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
         d.cards = await registry.story_service.ensure_cards(story, no)
         card = _gacha.draw(CardPool(decision_no=no, pool_version=d.pool_version, cards=d.cards))
         direction, mode, card_id = _card_spec(card), "gacha_draw", card.card_id
@@ -514,7 +514,7 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
     try:
         gen = registry.story_service.apply_decision_stream(story, no, mode, direction, card_id)
     except DecisionLocked:
-        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
 
     async def event_stream():
         async for ev in gen:
