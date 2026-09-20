@@ -10,6 +10,7 @@ import json
 from app.llm import LLMGateway
 from app.llm.errors import ModelError
 from app.schemas import Card
+from app.services.jsonparse import loads_coerce
 
 _DIRECTION_SYSTEM = """你是一款互动小说系统里的「命运卡生成器」。
 根据给定的故事设定与上一段剧情，生成 3~5 张候选"命运卡"，每张卡代表一个可选的剧情方向。
@@ -33,7 +34,7 @@ risk_balance(object, 仅SSR必填: {tension:int 1~10, suggested_turn:string≤80
 
 def _parse_cards(raw: str) -> list[Card]:
     try:
-        data = json.loads(raw)
+        data = loads_coerce(raw)
     except json.JSONDecodeError as exc:
         raise ModelError(f"命运卡响应不是合法 JSON：{raw[:200]}") from exc
     if isinstance(data, dict):

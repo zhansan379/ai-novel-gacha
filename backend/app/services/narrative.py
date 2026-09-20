@@ -8,11 +8,11 @@
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 
 from app.llm import LLMGateway
 from app.schemas import DirectionKind
+from app.services.jsonparse import loads_coerce
 
 _FORESHADOW_STATUSES = {"planted", "advanced", "paid_off"}
 
@@ -228,7 +228,7 @@ class NarrativeUpdater:
         )
         try:
             raw = await self._gateway.complete(task="narrative_update", system=system, user=user)
-            data = json.loads(raw)
+            data = loads_coerce(raw)
             if not isinstance(data, dict):
                 return characters, foreshadows, relations
         except Exception:

@@ -6,10 +6,9 @@
 """
 from __future__ import annotations
 
-import json
-
 from app.llm import LLMGateway
 from app.llm.errors import ModelError
+from app.services.jsonparse import loads_coerce
 
 _BLUEPRINT_SYSTEM = """你是小说世界构建师。基于「前提 + 简介」，产出结构化设定：
 世界观（简洁，只写与故事相关的部分）、历史线（过去的重大事件与成因）、
@@ -37,7 +36,7 @@ relationships 的 a/b 至少应涵盖 characters 里的名字与 world.factions 
 
 def _expect_obj(raw: str) -> dict:
     try:
-        data = json.loads(raw)
+        data = loads_coerce(raw)
     except json.JSONDecodeError as exc:
         raise ModelError(f"蓝图响应不是合法 JSON：{raw[:200]}") from exc
     if not isinstance(data, dict):
@@ -47,7 +46,7 @@ def _expect_obj(raw: str) -> dict:
 
 def _expect_list(raw: str) -> list:
     try:
-        data = json.loads(raw)
+        data = loads_coerce(raw)
     except json.JSONDecodeError as exc:
         raise ModelError(f"蓝图响应不是合法 JSON：{raw[:200]}") from exc
     if isinstance(data, list):
