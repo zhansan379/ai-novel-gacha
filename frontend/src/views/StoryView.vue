@@ -7,27 +7,31 @@ import DecisionPanel from '../components/DecisionPanel.vue'
 const route = useRoute()
 const store = useDecisionStore()
 
-onMounted(() => {
-  // 进入故事页即触发第一个分歧点（骨架阶段用内置占位卡池）
-  store.openNewDecision()
+onMounted(async () => {
+  const id = route.params.id as string | undefined
+  // 本会话刚创建（Home 已 set storyId）→ 直接使用；否则按 id 载入已有故事
+  if (id && store.storyId !== id) {
+    await store.load(id)
+  }
 })
 </script>
 
 <template>
   <section class="story">
     <header class="story-head">
-      <h2>故事 #{{ route.params.id }}</h2>
-      <p class="phase">现状：前置搭建（世界观 / 历史 / 大纲）与会话生成待接入 LLM，先验证核心抽卡决策闭环。</p>
+      <h2>故事</h2>
+      <p v-if="store.loading" class="phase">加载中…</p>
     </header>
+
+    <blockquote v-if="store.synopsis" class="synopsis">{{ store.synopsis }}</blockquote>
 
     <div class="layout">
       <div class="prose">
-        <h3>正文</h3>
-        <div class="placeholder">
-          占位正文区：接入 LLM 后，这里会流式展示生成的小说内容。
-        </div>
+        <article v-for="(p, i) in store.passages" :key="i" class="passage">
+          <p>{{ p }}</p>
+        </article>
       </div>
-      <DecisionPanel v-if="store.hasDecision" />
+      <DecisionPanel />
     </div>
   </section>
 </template>
@@ -37,26 +41,30 @@ onMounted(() => {
   margin: 0 0 6px;
 }
 .phase {
-  color: #6b7280;
+  color: #9ca3af;
   font-size: 13px;
+}
+.synopsis {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-left: 4px solid #1f2937;
+  background: #f7f7f8;
+  color: #4b5563;
 }
 .layout {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   gap: 20px;
-  margin-top: 16px;
+  align-items: start;
 }
-.prose h3 {
-  margin-top: 0;
+.passage {
+  line-height: 1.9;
+  color: #374151;
+  text-indent: 2em;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
 }
-.placeholder {
-  border: 1px dashed #d1d5db;
-  border-radius: 10px;
-  padding: 40px 20px;
-  color: #9ca3af;
-  text-align: center;
-}
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .layout {
     grid-template-columns: 1fr;
   }

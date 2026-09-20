@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useDecisionStore } from '../stores/decision'
 
 const router = useRouter()
+const store = useDecisionStore()
 const premise = ref('')
 
-function createStory() {
-  router.push({ name: 'story', params: { id: 'demo' } })
+async function createStory() {
+  if (store.loading) return
+  await store.create(premise.value || '一个少年在雨夜的旧城、被迫背负一个不为人知的秘密')
+  if (store.storyId) {
+    router.push({ name: 'story', params: { id: store.storyId } })
+  }
 }
 </script>
 
@@ -14,7 +20,7 @@ function createStory() {
   <section class="home">
     <h1>命运抽卡 · AI 互动小说</h1>
     <p class="sub">
-      输入一句灵感或题材，系统为你搭建世界观、角色与大纲；每个剧情分歧点，你可以
+      输入一句灵感或题材，系统为你搭建世界观与大纲；每个剧情分歧点，你可以
       <strong>抽一张命运卡</strong> 或用 <strong>自由输入</strong> 决定故事去向。
     </p>
 
@@ -25,10 +31,13 @@ function createStory() {
         maxlength="200"
         placeholder="例：一个失忆的杀手想找回身份……（留空则随机开书）"
       />
-      <button class="btn primary big" @click="createStory">开 书</button>
+      <button class="btn primary big" :disabled="store.loading" @click="createStory">
+        {{ store.loading ? '开书中…' : '开 书' }}
+      </button>
     </div>
 
-    <p class="note">当前为 MVP 骨架：决策/抽卡 UI 已可交互（内置占位卡池），正文生成待接入 LLM。</p>
+    <p v-if="store.error" class="error">{{ store.error }}</p>
+    <p class="note">当前为 MVP：抽卡 → 生成正文闭环已可跑通（未配置 Key 时用本地 mock 生成）。</p>
   </section>
 </template>
 
@@ -63,6 +72,13 @@ function createStory() {
 .btn.primary {
   background: #1f2937;
   color: #fff;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.error {
+  color: #dc2626;
 }
 .note {
   margin-top: 40px;

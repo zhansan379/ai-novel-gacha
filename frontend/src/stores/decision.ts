@@ -1,82 +1,166 @@
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import type { Card, CardPool, DecisionMode } from '../types'
+import { api } from '../api/client'
+import type { Card, DecisionMode } from '../types'
 
-// 占位卡池：接入 LLM 前用于驱动决策 UI；未来由 POST /decisions/{no}/cards 提供。
-const MOCK_POOL: CardPool = {
-  decision_no: 0,
-  pool_version: 1,
-  cards: [
-    {
-      card_id: 'm-1', title: '夜雨敲门', rarity: 'R', weight: 40, label: 'EVENT',
-      content: '雨夜有人敲响旅店的门，指名要找主角。是故人重逢，还是暗处的追兵？',
-    },
-    {
-      card_id: 'm-2', title: '破落画师', rarity: 'SR', weight: 25, label: 'MEETING',
-      content: '街角的落魄画师，总在画同一座不存在的城。他认出主角身上的一件旧物。',
-      risk_balance: { tension: 6, suggested_turn: '画师揭晓一件关于主角过去的线索' },
-    },
-    {
-      card_id: 'm-3', title: '一封密信', rarity: 'N', weight: 60, label: 'FORESHADOW',
-      content: '主角收到一封没有落款、笔迹却异常熟悉的信，落款日期是明天。',
-    },
-    {
-      card_id: 'm-4', title: '天光乍亮', rarity: 'R', weight: 35, label: 'SCENE',
-      content: '清晨的城门口出现异象。人群骚动，守城的兵士在盘查每一个过客。',
-    },
-  ],
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+interface ActionResult {
+  kind: 'draw' | 'pick' | 'free'
+  card: Card | null
+  passage: string
 }
 
 export const useDecisionStore = defineStore('decision', () => {
-  const cardPool = ref<CardPool | null>(null)
+  // 故事状态
+  const storyId = ref<string | null>(null)
+  const synopsis = ref('')
+  const passages = ref<string[]>([])
+
+  // 当前决策
+  const decisionNo = ref<number | null>(null)
+  const cards = ref<Card[]>([])
   const mode = ref<DecisionMode>('gacha_draw')
   const revealed = ref<Card | null>(null)
   const customInstruction = ref('')
-  const applied = ref(false)
 
-  const activePool = computed(() => cardPool.value)
-  const hasDecision = computed(() => cardPool.value !== null)
+  // 流程控制
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const lastAction = ref<ActionResult | null>(null)
+  const nextDecisionNo = ref<number | null>(null)
 
-  /** 触发一个新分歧点（后端返回卡池时调用并传入 pool）。 */
-  function openNewDecision(pool: CardPool = MOCK_POOL) {
-    cardPool.value = {
-      ...pool,
-      decision_no: (cardPool.value?.decision_no ?? 0) + 1,
+  /** 用灵感开一本新书（后端完成初始卡池 + 开篇）。 */
+  async function create(premise: string) {
+    const text = premise.trim()
+    if (!text) return
+    loading.value = true
+    error.value = null
+    try {
+      const s = await api.createStory(text)
+      storyId.value = s.story_id
+      synopsis.value = s.synopsis
+      passages.value = [s.opening]
+      decisionNo.value = s.decision_no
+      cards.value = s.cards
+      _resetDecisionLocalState()
+    } catch (e) {
+      error.value = errMsg(e)
+    } finally {
+      loading.value = false
     }
+  }
+
+  /** 加载已有故事（刷新/分享链接进入）。 */
+  async function load(existingId: string) {
+    loading.value = true
+    error.value = null
+    try {
+      const s = await api.getStory(existingId)
+      storyId.value = existingId
+      synopsis.value = s.synopsis
+      passages.value = s.passages
+      await loadCards(existingId, s.next_decision_no)
+    } catch (e) {
+      error.value = errMsg(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function loadCards(sid: string, no: number) {
+    const c = await api.getCards(sid, no)
+    decisionNo.value = c.decision_no
+    cards.value = c.cards
+    _resetDecisionLocalState()
+  }
+
+  function _resetDecisionLocalState() {
     revealed.value = null
     customInstruction.value = ''
-    applied.value = false
+    lastAction.value = null
+    nextDecisionNo.value = null
+    error.value = null
   }
 
-  /** 盲抽：按 weight 加权随机揭晓一张。 */
-  function drawCard() {
-    const cards = cardPool.value?.cards
-    if (!cards || cards.length === 0) return
-    const total = cards.reduce((sum, c) => sum + c.weight, 0)
-    let r = Math.random() * total
-    for (const card of cards) {
-      r -= card.weight
-      if (r <= 0) {
-        revealed.value = card
-        return
-      }
+  /** 盲抽一次即完成抽取 + 生成正文，并进入"下一分歧"待命。 */
+  async function draw() {
+    if (!storyId.value || decisionNo.value == null) return
+    loading.value = true
+    error.value = null
+    try {
+      const res = await api.blindDraw(storyId.value, decisionNo.value)
+      passages.value = [...passages.value, res.passage]
+      lastAction.value = { kind: 'draw', card: res.card, passage: res.passage }
+      nextDecisionNo.value = res.next_decision_no
+      cards.value = []
+      decisionNo.value = null
+    } catch (e) {
+      error.value = errMsg(e)
+    } finally {
+      loading.value = false
     }
-    revealed.value = cards[cards.length - 1]!
   }
 
-  /** 明选：选定一张卡。 */
-  function pickCard(cardId: string) {
-    revealed.value = cardPool.value?.cards.find((c) => c.card_id === cardId) ?? null
+  /** 采用当前选择（明选卡 / 自由输入指令），并进入"下一分歧"待命。 */
+  async function apply() {
+    if (!storyId.value || decisionNo.value == null) return
+    if (mode.value === 'gacha_pick' && !revealed.value) {
+      error.value = '请先选择一张卡'
+      return
+    }
+    if (mode.value === 'free' && !customInstruction.value.trim()) {
+      error.value = '请输入剧情指令'
+      return
+    }
+    loading.value = true
+    error.value = null
+    try {
+      const body = mode.value === 'free'
+        ? { custom_instruction: customInstruction.value.trim() }
+        : { card_id: revealed.value!.card_id }
+      const res = await api.apply(storyId.value, decisionNo.value, body)
+      passages.value = [...passages.value, res.passage]
+      lastAction.value = { kind: mode.value === 'free' ? 'free' : 'pick', card: revealed.value, passage: res.passage }
+      nextDecisionNo.value = res.next_decision_no
+      cards.value = []
+      decisionNo.value = null
+    } catch (e) {
+      error.value = errMsg(e)
+    } finally {
+      loading.value = false
+    }
   }
 
-  /** 确认当前决策（盲抽揭晓卡 / 明选卡 / 自由输入指令）。 */
-  function confirm() {
-    applied.value = true
+  /** 进入下一个分歧点，加载新的卡池。 */
+  async function next() {
+    if (!storyId.value || nextDecisionNo.value == null) return
+    loading.value = true
+    try {
+      await loadCards(storyId.value, nextDecisionNo.value)
+    } catch (e) {
+      error.value = errMsg(e)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function pickLocal(cardId: string) {
+    revealed.value = cards.value.find((c) => c.card_id === cardId) ?? null
+  }
+
+  function reset() {
+    storyId.value = null; synopsis.value = ''; passages.value = []
+    decisionNo.value = null; cards.value = []; revealed.value = null
+    customInstruction.value = ''; loading.value = false; error.value = null
+    lastAction.value = null; nextDecisionNo.value = null
   }
 
   return {
-    cardPool, mode, revealed, customInstruction, applied,
-    activePool, hasDecision,
-    openNewDecision, drawCard, pickCard, confirm,
+    storyId, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
+    loading, error, lastAction, nextDecisionNo,
+    create, load, draw, apply, next, pickLocal, reset,
   }
 })

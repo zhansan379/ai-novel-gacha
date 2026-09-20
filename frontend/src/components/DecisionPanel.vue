@@ -15,88 +15,104 @@ const MODES: { key: DecisionMode; label: string }[] = [
 function rarityClass(r: Card['rarity']) {
   return `rarity rarity-${r.toLowerCase()}`
 }
+
+function kindLabel(kind: string) {
+  const map: Record<string, string> = {
+    draw: '盲抽', pick: '明选', free: '自由输入',
+  }
+  return map[kind] ?? kind
+}
 </script>
 
 <template>
   <section class="decision-panel">
-    <h3 class="panel-title">剧情分歧 · 决定故事去向</h3>
+    <p v-if="store.error" class="error">{{ store.error }}</p>
 
-    <nav class="tabs">
-      <button
-        v-for="m in MODES"
-        :key="m.key"
-        :class="['tab', { active: tab === m.key }]"
-        @click="tab = m.key"
+    <!-- 已提交：展示结果 + 进入下一分歧 -->
+    <template v-if="store.lastAction">
+      <h3 class="panel-title">剧情推进 · {{ kindLabel(store.lastAction.kind) }}</h3>
+      <div
+        v-if="store.lastAction.card"
+        class="card"
+        :class="rarityClass(store.lastAction.card.rarity)"
       >
-        {{ m.label }}
+        <span class="card-rarity">{{ store.lastAction.card.rarity }}</span>
+        <span class="card-label">{{ store.lastAction.card.label }}</span>
+        <h4>{{ store.lastAction.card.title }}</h4>
+        <p>{{ store.lastAction.card.content }}</p>
+      </div>
+      <p v-else class="applied-note">已按你的自由输入推进剧情。</p>
+      <button class="btn primary big" :disabled="store.loading" @click="store.next">
+        {{ store.loading ? '生成中…' : '进入下一分歧' }}
       </button>
-    </nav>
+    </template>
 
-    <!-- 盲抽 -->
-    <div v-if="tab === 'gacha_draw'" class="mode-body">
-      <p class="hint">在完全不知道结果的情况下随机揭晓一张命运卡。</p>
-      <template v-if="store.revealed">
-        <div class="card" :class="rarityClass(store.revealed.rarity)">
-          <span class="card-rarity">{{ store.revealed.rarity }}</span>
-          <span class="card-label">{{ store.revealed.label }}</span>
-          <h4>{{ store.revealed.title }}</h4>
-          <p>{{ store.revealed.content }}</p>
-        </div>
-        <button v-if="!store.applied" class="btn primary" @click="store.confirm">
-          按此方向推进
-        </button>
-      </template>
-      <button v-else class="btn primary big" @click="store.drawCard">抽 卡</button>
-    </div>
-
-    <!-- 明选 -->
-    <div v-else-if="tab === 'gacha_pick'" class="mode-body">
-      <p class="hint">展示所有命运卡，选出你想要的走向。</p>
-      <div class="pick-grid">
+    <!-- 待决策 -->
+    <template v-else>
+      <h3 class="panel-title">剧情分歧 · 决定故事去向</h3>
+      <nav class="tabs">
         <button
-          v-for="card in store.cardPool?.cards"
-          :key="card.card_id"
-          :class="['card', rarityClass(card.rarity), { chosen: store.revealed?.card_id === card.card_id }]"
-          @click="store.pickCard(card.card_id)"
+          v-for="m in MODES"
+          :key="m.key"
+          :class="['tab', { active: tab === m.key }]"
+          @click="tab = m.key"
         >
-          <span class="card-rarity">{{ card.rarity }}</span>
-          <span class="card-label">{{ card.label }}</span>
-          <h4>{{ card.title }}</h4>
-          <p>{{ card.content }}</p>
+          {{ m.label }}
+        </button>
+      </nav>
+
+      <!-- 盲抽 -->
+      <div v-if="tab === 'gacha_draw'" class="mode-body">
+        <p class="hint">在完全不知道结果的情况下随机揭晓一张命运卡。</p>
+        <button class="btn primary big" :disabled="store.loading" @click="store.draw">
+          {{ store.loading ? '抽卡中…' : '抽 卡' }}
         </button>
       </div>
-      <button
-        v-if="store.revealed && !store.applied"
-        class="btn primary"
-        @click="store.confirm"
-      >
-        采用「{{ store.revealed.title }}」
-      </button>
-    </div>
 
-    <!-- 自由输入 -->
-    <div v-else class="mode-body">
-      <p class="hint">输入任意指令引导剧情（加事件 / 加角色 / 切场景 / 补设定…）。</p>
-      <textarea
-        v-model="store.customInstruction"
-        rows="3"
-        maxlength="500"
-        placeholder="例：让主角在旧码头发现一张藏宝图……"
-      />
-      <button
-        v-if="!store.applied"
-        class="btn primary"
-        :disabled="!store.customInstruction.trim()"
-        @click="store.confirm"
-      >
-        按我的输入推进
-      </button>
-    </div>
+      <!-- 明选 -->
+      <div v-else-if="tab === 'gacha_pick'" class="mode-body">
+        <p class="hint">展示所有命运卡，点选你想采用的走向。</p>
+        <div class="pick-grid">
+          <button
+            v-for="card in store.cards"
+            :key="card.card_id"
+            :class="['card', rarityClass(card.rarity), { chosen: store.revealed?.card_id === card.card_id }]"
+            @click="store.pickLocal(card.card_id)"
+          >
+            <span class="card-rarity">{{ card.rarity }}</span>
+            <span class="card-label">{{ card.label }}</span>
+            <h4>{{ card.title }}</h4>
+            <p>{{ card.content }}</p>
+          </button>
+        </div>
+        <button
+          v-if="store.revealed"
+          class="btn primary"
+          :disabled="store.loading"
+          @click="store.apply"
+        >
+          {{ store.loading ? '生成中…' : `采用「${store.revealed.title}」` }}
+        </button>
+      </div>
 
-    <p v-if="store.applied" class="applied-note">
-      方向已确定 <span v-if="store.revealed">「{{ store.revealed.title }}」</span
-      ><span v-else-if="store.customInstruction">（自由输入）</span>。接入 LLM 后在此续写正文。
-    </p>
+      <!-- 自由输入 -->
+      <div v-else class="mode-body">
+        <p class="hint">输入任意指令引导剧情（加事件 / 加角色 / 切场景 / 补设定…）。</p>
+        <textarea
+          v-model="store.customInstruction"
+          rows="3"
+          maxlength="500"
+          placeholder="例：让主角在旧码头发现一张藏宝图……"
+        />
+        <button
+          class="btn primary"
+          :disabled="store.loading || !store.customInstruction.trim()"
+          @click="store.apply"
+        >
+          {{ store.loading ? '生成中…' : '按我的输入推进' }}
+        </button>
+      </div>
+    </template>
   </section>
 </template>
 
@@ -109,6 +125,11 @@ function rarityClass(r: Card['rarity']) {
 }
 .panel-title {
   margin: 0 0 12px;
+}
+.error {
+  color: #dc2626;
+  font-size: 13px;
+  margin: 0 0 10px;
 }
 .tabs {
   display: flex;
@@ -129,6 +150,7 @@ function rarityClass(r: Card['rarity']) {
 .hint {
   color: #6b7280;
   font-size: 13px;
+  margin-top: 0;
 }
 .mode-body {
   display: flex;
@@ -142,6 +164,7 @@ function rarityClass(r: Card['rarity']) {
   text-align: left;
   background: #fff;
   position: relative;
+  cursor: pointer;
 }
 .card h4 {
   margin: 6px 0 4px;
@@ -203,7 +226,7 @@ function rarityClass(r: Card['rarity']) {
 .applied-note {
   color: #059669;
   font-weight: 600;
-  margin: 6px 0 0;
+  margin: 6px 0;
 }
 textarea {
   width: 100%;

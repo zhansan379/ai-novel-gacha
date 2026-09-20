@@ -27,3 +27,52 @@ export interface CardPool {
 }
 
 export type DecisionMode = 'gacha_draw' | 'gacha_pick' | 'free'
+
+export interface DirectionSpec {
+  kind: 'EVENT' | 'ACTION' | 'SCENE' | 'MEETING' | 'FORESHADOW' | 'CUSTOM'
+  summary: string
+  target_character_id?: string
+  scene?: string
+  constraints?: string[]
+  risk_flag?: boolean
+}
+
+// ---- 后端 API 响应（与《接口契约》一致；远期 OpenAPI 生成替换）----
+export interface StoryCreated {
+  story_id: string
+  synopsis: string
+  opening: string
+  decision_no: number
+  cards: Card[]
+}
+
+export interface CardsResponse {
+  decision_no: number
+  pool_version: number
+  cards: Card[]
+}
+
+export interface DrawResponse {
+  decision_no: number
+  mode: 'gacha_draw'
+  card: Card
+  direction_spec: DirectionSpec
+  passage: string
+  next_decision_no: number
+}
+
+export interface ApplyResponse {
+  decision_no: number
+  mode: 'gacha_pick' | 'free'
+  direction_spec: DirectionSpec
+  passage: string
+  next_decision_no: number
+}
+
+export interface StorySummary {
+  story_id: string
+  premise: string
+  synopsis: string
+  passages: string[]
+  next_decision_no: number
+}
