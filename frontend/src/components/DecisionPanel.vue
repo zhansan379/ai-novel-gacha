@@ -74,8 +74,8 @@ function kindLabel(kind: string) {
       <!-- 盲抽 -->
       <div v-if="tab === 'gacha_draw'" class="mode-body">
         <p class="hint">在完全不知道结果的情况下随机揭晓一张命运卡。</p>
-        <button class="btn primary big pulse" :disabled="store.loading" @click="store.draw">
-          {{ store.loading ? '抽卡中…' : '抽 卡' }}
+        <button class="btn primary big" :disabled="store.loading" @click="store.draw">
+          {{ store.loading ? '抽卡中…' : '抽一枚命运卡' }}
         </button>
       </div>
 
@@ -154,7 +154,7 @@ function kindLabel(kind: string) {
   cursor: pointer;
 }
 .tab.active {
-  background: #1f2937;
+  background: var(--accent);
   color: #fff;
 }
 .hint {
@@ -182,18 +182,11 @@ function kindLabel(kind: string) {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
 .card.reveal {
-  animation: reveal 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; /* spring-in */
+  animation: reveal 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; /* 卡牌揭示作为唯一辨识度动效 */
 }
 @keyframes reveal {
   from { transform: translateY(10px) scale(0.9); opacity: 0; }
   to { transform: none; opacity: 1; }
-}
-.pulse {
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 8px 22px rgba(79, 70, 229, 0.35); }
-  50% { box-shadow: 0 8px 34px rgba(219, 39, 119, 0.55); }
 }
 .card h4 {
   margin: 6px 0 4px;
@@ -241,12 +234,18 @@ function kindLabel(kind: string) {
   align-self: flex-start;
 }
 .btn.primary {
-  background: #1f2937;
+  background: var(--accent);
   color: #fff;
+  transition: background-color 0.15s, transform 0.15s;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #4338ca;
+  transform: translateY(-2px);
 }
 .btn.big {
-  font-size: 16px;
-  padding: 12px 28px;
+  font-size: 15px;
+  padding: 12px 26px;
+  font-weight: 600;
 }
 .btn:disabled {
   opacity: 0.5;

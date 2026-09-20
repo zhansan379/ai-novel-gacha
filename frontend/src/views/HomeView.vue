@@ -34,12 +34,8 @@ async function createStory() {
 
 <template>
   <section class="home">
-    <div class="glow b1" aria-hidden="true"></div>
-    <div class="glow b2" aria-hidden="true"></div>
-    <div class="glow b3" aria-hidden="true"></div>
-
     <div class="home-inner">
-      <h1 class="hero-title">命运抽卡 · AI 互动小说</h1>
+      <h1 class="hero-title"><span class="hl">命运抽卡</span> · AI 互动小说</h1>
       <p class="sub">
         输入一句灵感，系统先为你构建世界观、历史与大纲；每个剧情分歧点，你可以
         <strong>抽一张命运卡</strong> 或用 <strong>自由输入</strong> 决定故事去向。
@@ -79,44 +75,11 @@ async function createStory() {
   justify-content: center;
   padding: 40px 0;
   position: relative;
-  overflow: hidden;
-}
-.glow {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(64px);
-  opacity: 0.55;
-  pointer-events: none;
-  animation: glowPulse 9s ease-in-out infinite;
-  z-index: 0;
-}
-.glow.b1 {
-  width: 360px; height: 360px;
-  top: -70px; left: -60px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.55), transparent 70%);
-}
-.glow.b2 {
-  width: 320px; height: 320px;
-  right: -40px; bottom: -40px;
-  background: radial-gradient(circle, rgba(219, 39, 119, 0.45), transparent 70%);
-  animation-delay: -3s;
-}
-.glow.b3 {
-  width: 260px; height: 260px;
-  top: 20%; right: 16%;
-  background: radial-gradient(circle, rgba(245, 158, 11, 0.4), transparent 70%);
-  animation-delay: -6s;
-}
-@keyframes glowPulse {
-  0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.45; }
-  50% { transform: scale(1.18) translate(12px, -10px); opacity: 0.7; }
 }
 .home-inner {
   width: 100%;
   text-align: center;
-  animation: fadeUp .5s ease both;
-  position: relative;
-  z-index: 1;
+  animation: fadeUp 0.5s ease both;
 }
 @keyframes fadeUp {
   from { transform: translateY(14px); opacity: 0; }
@@ -126,15 +89,15 @@ async function createStory() {
   font-size: 34px;
   margin: 0 0 12px;
   letter-spacing: 1px;
-  background: linear-gradient(90deg, #4f46e5, #db2777, #f59e0b, #4f46e5);
-  background-size: 200%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: flow 6s linear infinite;
+  color: #111827;
+  font-weight: 800;
 }
-@keyframes flow {
-  to { background-position: 200% center; }
+/* 签名细节：关键短语下划线高亮，单一强调色 */
+.hl {
+  background: linear-gradient(transparent 64%, var(--accent-soft) 0);
+  padding: 0 3px;
+  color: var(--accent);
+  font-weight: 800;
 }
 .sub {
   max-width: 640px;
@@ -149,47 +112,32 @@ async function createStory() {
 .premise-input {
   width: min(520px, 66vw);
   padding: 12px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 10px;
   font-size: 15px;
-  transition: border-color .2s, box-shadow .2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 .premise-input:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.16);
 }
 .btn {
-  padding: 12px 24px;
+  padding: 12px 26px;
   border: none;
   border-radius: 10px;
   cursor: pointer;
 }
 .btn.primary {
-  background: linear-gradient(90deg, #4f46e5, #7c3aed, #db2777);
+  background: var(--accent);
   color: #fff;
-  box-shadow: 0 8px 22px rgba(124, 58, 237, 0.35);
-  transition: transform .15s, box-shadow .2s;
-  position: relative;
-  overflow: hidden;
-}
-.btn.primary::after {
-  content: '';
-  position: absolute;
-  top: 0; left: -80%;
-  width: 60%; height: 100%;
-  background: linear-gradient(110deg, transparent, rgba(255,255,255,.35), transparent);
-  transform: skewX(-22deg);
-  animation: sweep 3.2s ease-in-out infinite;
-}
-@keyframes sweep {
-  0% { left: -80%; }
-  55% { left: 130%; }
-  100% { left: 130%; }
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.28);
+  transition: background-color 0.15s, transform 0.15s, box-shadow 0.2s;
 }
 .btn.primary:hover:not(:disabled) {
+  background: #4338ca;
   transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(124, 58, 237, 0.45);
 }
 .btn.primary:active:not(:disabled) {
   transform: translateY(0);
@@ -209,7 +157,7 @@ async function createStory() {
 }
 .style-select {
   padding: 6px 10px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
 }
