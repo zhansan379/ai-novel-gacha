@@ -1,10 +1,21 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { api } from '../api/client'
 import BlueprintPanel from '../components/BlueprintPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
 const storyId = route.params.id as string
+const synopsis = ref('')
+
+onMounted(async () => {
+  try {
+    synopsis.value = (await api.getStory(storyId)).synopsis
+  } catch {
+    synopsis.value = ''
+  }
+})
 </script>
 
 <template>
@@ -16,6 +27,7 @@ const storyId = route.params.id as string
         <p class="sub">地理、力量体系、势力、角色关系与剧情进度一览</p>
       </div>
     </header>
+    <blockquote v-if="synopsis" class="lore-synop">{{ synopsis }}</blockquote>
     <BlueprintPanel :story-id="storyId" />
   </section>
 </template>
@@ -58,5 +70,15 @@ const storyId = route.params.id as string
   margin: 0;
   color: #a89782;
   font-size: 13px;
+}
+.lore-synop {
+  margin: 14px 0 4px;
+  padding: 14px 18px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  border-radius: 0;
 }
 </style>

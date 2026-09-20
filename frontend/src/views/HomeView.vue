@@ -69,16 +69,15 @@ function toggleExport(s: StoryListItem) {
   exportOpen.value = exportOpen.value === s.story_id ? null : s.story_id
 }
 
-/** 把快照里的各段正文按顺序拼接为 Markdown / TXT 纯文本（不加“第几段”标题，连续成文）。 */
+/** 把快照里的各段正文按顺序拼接为 Markdown / TXT 纯文本（不含简介，无段标题）。 */
 function stitchExport(data: StorySnapshot, format: 'md' | 'txt'): string {
   const title = data.premise || '未命名'
-  const synopsis = data.synopsis || ''
   const body = (data.passages as Array<{ content?: string }>)
     .filter((p) => p?.content)
     .map((p) => p.content)
     .join('\n\n')
-  if (format === 'md') return `# ${title}\n\n${synopsis}\n\n${body}\n`
-  return `${title}\n\n${synopsis}\n\n${body}\n`
+  if (format === 'md') return `# ${title}\n\n${body}\n`
+  return `${title}\n\n${body}\n`
 }
 
 /** 触发浏览器下载一段文本。 */

@@ -44,8 +44,6 @@ function goLore() {
         </p>
       </header>
 
-      <blockquote v-if="store.synopsis" class="synopsis">{{ store.synopsis }}</blockquote>
-
       <div class="prose">
         <p v-if="store.loading && !store.passages.length" class="hint phase">加载中…</p>
         <article v-for="(p, i) in store.passages" :key="i" class="passage">
@@ -128,16 +126,6 @@ function goLore() {
 }
 .meta .dot {
   color: var(--border);
-}
-.synopsis {
-  margin: 0 auto 20px;
-  padding: 14px 18px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.7;
-  border-radius: 0;
 }
 .prose {
   color: var(--text);
