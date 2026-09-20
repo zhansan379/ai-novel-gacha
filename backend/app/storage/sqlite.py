@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 
 from app.schemas import Card, DirectionSpec
@@ -196,6 +197,97 @@ class SQLiteStore:
             )
             _fill_blueprint(story, row["blueprint_json"])
             self._cache[story_id] = story
+            return story
+
+    def list(self) -> list[dict]:
+        """返回全部故事的精简概览（书架用），按创建先后倒序。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT rowid AS rid, id, premise, synopsis, next_decision_no "
+                "FROM stories ORDER BY rid DESC",
+            ).fetchall()
+            return [
+                {
+                    "story_id": r["id"],
+                    "premise": r["premise"],
+                    "synopsis": r["synopsis"],
+                    "next_decision_no": r["next_decision_no"],
+                }
+                for r in rows
+            ]
+
+    def snapshot(self, story_id: str) -> dict:
+        """导出整本故事的可移植快照（往返导入用），与 save 持久化的字段一致。"""
+        with self._lock:
+            story = self.get(story_id)
+            return {
+                "story_id": story.id,
+                "premise": story.premise,
+                "synopsis": story.synopsis,
+                "next_decision_no": story.next_decision_no,
+                "style_profile_id": story.style_profile_id,
+                "passages": [
+                    {"no": p["no"], "decision_no": p.get("decision_no"), "content": p["content"]}
+                    for p in story.passages
+                ],
+                "decisions": [
+                    {
+                        "no": d.no, "pool_version": d.pool_version, "mode": d.mode,
+                        "card_id": d.card_id, "applied": d.applied,
+                        "cards": [c.model_dump(mode="json") for c in d.cards],
+                        "direction_spec": d.direction_spec.model_dump(mode="json") if d.direction_spec else None,
+                        "rollback": d.rollback,
+                    }
+                    for d in story.decisions.values()
+                ],
+                "world": story.world, "history": story.history, "characters": story.characters,
+                "foreshadows": story.foreshadows, "timeline": story.timeline,
+            }
+
+    def delete(self, story_id: str) -> bool:
+        """删除故事及其正文/决策；不存在返回 False。"""
+        with self._lock:
+            self._cache.pop(story_id, None)
+            cur = self._conn.execute("DELETE FROM stories WHERE id=?", (story_id,))
+            self._conn.execute("DELETE FROM passages WHERE story_id=?", (story_id,))
+            self._conn.execute("DELETE FROM decisions WHERE story_id=?", (story_id,))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def import_snapshot(self, data: dict) -> Story:
+        """从快照重建一本新故事（分配新 id，避免覆盖既有同 id 书籍）。"""
+        with self._lock:
+            story = Story(
+                id=str(uuid.uuid4()),
+                premise=data.get("premise", ""),
+                synopsis=data.get("synopsis", "") or "",
+                passages=[
+                    {"no": p.get("no"), "decision_no": p.get("decision_no"),
+                     "content": p.get("content") or ""}
+                    for p in (data.get("passages") or [])
+                ],
+                next_decision_no=int(data.get("next_decision_no") or 1),
+                world=data.get("world") or {},
+                history=data.get("history") or [],
+                characters=data.get("characters") or [],
+                style_profile_id=data.get("style_profile_id") or "restrained",
+                foreshadows=data.get("foreshadows") or [],
+                timeline=data.get("timeline") or [],
+            )
+            for obj in (data.get("decisions") or []):
+                d = Decision(
+                    no=int(obj["no"]),
+                    pool_version=int(obj.get("pool_version", 1)),
+                    mode=obj.get("mode"),
+                    card_id=obj.get("card_id"),
+                    applied=bool(obj.get("applied", False)),
+                    cards=[Card.model_validate(c) for c in (obj.get("cards") or [])],
+                    direction_spec=DirectionSpec.model_validate(obj["direction_spec"])
+                    if obj.get("direction_spec") else None,
+                    rollback=obj.get("rollback"),
+                )
+                story.decisions[d.no] = d
+            self.save(story)
             return story
 
     def reset(self) -> None:

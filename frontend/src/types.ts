@@ -47,6 +47,30 @@ export interface StoryCreated {
   style_profile_id: string
 }
 
+export interface StoryListItem {
+  story_id: string
+  premise: string
+  synopsis: string
+  next_decision_no: number
+}
+export interface StoryList { stories: StoryListItem[] }
+
+/** 整本故事的可移植快照（导出/导入往返格式）。 */
+export interface StorySnapshot {
+  story_id: string
+  premise: string
+  synopsis: string
+  next_decision_no: number
+  style_profile_id: string
+  passages: unknown[]
+  decisions: unknown[]
+  world: unknown
+  history: unknown[]
+  characters: unknown[]
+  foreshadows: unknown[]
+  timeline: unknown[]
+}
+
 export interface StyleProfile {
   id: string
   name: string

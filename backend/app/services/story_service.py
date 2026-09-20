@@ -100,6 +100,19 @@ class StoryService:
     def get(self, story_id: str) -> Story:
         return self._store.get(story_id)
 
+    def list(self) -> list[dict]:
+        """返回全部故事的精简概览（书架用）。"""
+        return self._store.list()
+
+    def export_snapshot(self, story_id: str) -> dict:
+        return self._store.snapshot(story_id)
+
+    def import_snapshot(self, data: dict) -> Story:
+        return self._store.import_snapshot(data)
+
+    def delete(self, story_id: str) -> bool:
+        return self._store.delete(story_id)
+
     def _current_decision(self, story: Story, decision_no: int):
         decision = story.decisions.get(decision_no)
         if decision is None:

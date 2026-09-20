@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
+import CollapsePanel from './CollapsePanel.vue'
 import type { Blueprint, StyleProfile, TimelineEvent } from '../types'
 
 const props = defineProps<{ storyId: string }>()
@@ -45,8 +46,7 @@ onMounted(async () => {
     <p v-else-if="error" class="err">{{ error }}</p>
     <template v-else-if="bp">
       <p v-if="styleName(bp.style)" class="style-tag">文风：{{ styleName(bp.style) }}</p>
-      <details class="blk">
-        <summary>世界观</summary>
+      <CollapsePanel class="blk" title="世界观">
         <p v-if="bp.world.geography" class="row"><b>地理：</b>{{ bp.world.geography }}</p>
         <p v-if="bp.world.power_system" class="row"><b>力量体系：</b>{{ bp.world.power_system }}</p>
         <p v-if="bp.world.rules?.length" class="row">
@@ -55,20 +55,18 @@ onMounted(async () => {
         <p v-if="bp.world.factions?.length" class="row"><b>势力：</b>{{ bp.world.factions.join('、') }}</p>
         <p v-if="bp.world.constraints?.length" class="row"><b>限制：</b>{{ bp.world.constraints.join('；') }}</p>
         <p v-if="!bp.world.geography && !bp.world.rules?.length" class="muted">暂无世界观设定</p>
-      </details>
+      </CollapsePanel>
 
-      <details class="blk">
-        <summary>历史线（{{ bp.history.length }}）</summary>
+      <CollapsePanel class="blk" :title="`历史线（${bp.history.length}）`">
         <ul v-if="bp.history.length">
           <li v-for="(h, i) in bp.history" :key="i">
             <b>{{ h.era }}</b>：{{ h.event }} → {{ h.impact }}
           </li>
         </ul>
         <p v-else class="muted">暂无</p>
-      </details>
+      </CollapsePanel>
 
-      <details class="blk">
-        <summary>角色（{{ bp.characters.length }}）</summary>
+      <CollapsePanel class="blk" :title="`角色（${bp.characters.length}）`">
         <div v-for="(c, i) in bp.characters" :key="i" class="char">
           <b>{{ c.name }}</b>
           <span class="tag" :class="c.role === 'protagonist' ? 'prot' : 'supp'">
@@ -80,10 +78,9 @@ onMounted(async () => {
           <div v-if="c.trait" class="muted">特征：{{ c.trait }}</div>
           <div v-if="c.moves?.length" class="moves">动向：{{ c.moves.join(' → ') }}</div>
         </div>
-      </details>
+      </CollapsePanel>
 
-      <details v-if="bp.foreshadows?.length" class="blk">
-        <summary>伏笔账本（{{ bp.foreshadows.length }}）</summary>
+      <CollapsePanel v-if="bp.foreshadows?.length" class="blk" :title="`伏笔账本（${bp.foreshadows.length}）`">
         <ul>
           <li v-for="f in bp.foreshadows" :key="f.id">
             <span class="chip" :class="'fs-' + f.status">{{ statusText(f.status) }}</span>
@@ -91,10 +88,10 @@ onMounted(async () => {
             <span v-if="f.origin" class="muted">（{{ f.origin }}）</span>
           </li>
         </ul>
-      </details>
+      </CollapsePanel>
 
-      <details class="blk">
-        <summary>剧情时间线（{{ timeline.length }}）<span class="muted">· 随抽卡追加，非世界历史线</span></summary>
+      <CollapsePanel class="blk" :title="`剧情时间线（${timeline.length}）`">
+        <template #hint>· 随抽卡追加，非世界历史线</template>
         <ol v-if="timeline.length" class="tl">
           <li v-for="ev in timeline" :key="ev.no">
             <span class="chip">{{ labelText(ev.label) }}</span><b>{{ ev.title || '自由决策' }}</b>
@@ -102,7 +99,7 @@ onMounted(async () => {
           </li>
         </ol>
         <p v-else class="muted">尚无剧情（每做一次决策追加一条）</p>
-      </details>
+      </CollapsePanel>
     </template>
   </section>
 </template>
@@ -127,11 +124,6 @@ onMounted(async () => {
 }
 .blk:last-child {
   border-bottom: none;
-}
-summary {
-  cursor: pointer;
-  font-weight: 600;
-  margin-bottom: 4px;
 }
 .row {
   margin: 4px 0;

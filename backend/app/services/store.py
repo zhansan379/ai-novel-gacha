@@ -81,5 +81,84 @@ class StoryStore:
         async with self._lock:
             self._data[story.id] = story
 
+    def snapshot(self, story_id: str) -> dict:
+        story = self.get(story_id)
+        return {
+            "story_id": story.id,
+            "premise": story.premise,
+            "synopsis": story.synopsis,
+            "next_decision_no": story.next_decision_no,
+            "style_profile_id": story.style_profile_id,
+            "passages": [
+                {"no": p["no"], "decision_no": p.get("decision_no"), "content": p["content"]}
+                for p in story.passages
+            ],
+            "decisions": [
+                {
+                    "no": d.no, "pool_version": d.pool_version, "mode": d.mode,
+                    "card_id": d.card_id, "applied": d.applied,
+                    "cards": [c.model_dump(mode="json") for c in d.cards],
+                    "direction_spec": d.direction_spec.model_dump(mode="json") if d.direction_spec else None,
+                    "rollback": d.rollback,
+                }
+                for d in story.decisions.values()
+            ],
+            "world": story.world, "history": story.history, "characters": story.characters,
+            "foreshadows": story.foreshadows, "timeline": story.timeline,
+        }
+
+    def delete(self, story_id: str) -> bool:
+        return self._data.pop(story_id, None) is not None
+
+    def import_snapshot(self, data: dict) -> Story:
+        import uuid
+
+        story = Story(
+            id=str(uuid.uuid4()),
+            premise=data.get("premise", ""),
+            synopsis=data.get("synopsis", "") or "",
+            passages=[
+                {"no": p.get("no"), "decision_no": p.get("decision_no"),
+                 "content": p.get("content") or ""}
+                for p in (data.get("passages") or [])
+            ],
+            next_decision_no=int(data.get("next_decision_no") or 1),
+            world=data.get("world") or {},
+            history=data.get("history") or [],
+            characters=data.get("characters") or [],
+            style_profile_id=data.get("style_profile_id") or "restrained",
+            foreshadows=data.get("foreshadows") or [],
+            timeline=data.get("timeline") or [],
+        )
+        from app.schemas import Card, DirectionSpec
+
+        for obj in (data.get("decisions") or []):
+            d = Decision(
+                no=int(obj["no"]),
+                pool_version=int(obj.get("pool_version", 1)),
+                mode=obj.get("mode"),
+                card_id=obj.get("card_id"),
+                applied=bool(obj.get("applied", False)),
+                cards=[Card.model_validate(c) for c in (obj.get("cards") or [])],
+                direction_spec=DirectionSpec.model_validate(obj["direction_spec"])
+                if obj.get("direction_spec") else None,
+                rollback=obj.get("rollback"),
+            )
+            story.decisions[d.no] = d
+        self._data[story.id] = story
+        return story
+
+    def list(self) -> list[dict]:
+        """返回全部故事的精简概览（书架用），按创建先后倒序。"""
+        return [
+            {
+                "story_id": s.id,
+                "premise": s.premise,
+                "synopsis": s.synopsis,
+                "next_decision_no": s.next_decision_no,
+            }
+            for s in reversed(list(self._data.values()))
+        ]
+
     def reset(self) -> None:
         self._data.clear()

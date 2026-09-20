@@ -5,7 +5,7 @@ import json
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Path
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from app.gacha import GachaEngine
@@ -108,6 +108,21 @@ class StorySummary(BaseModel):
     timeline: list[dict] = []
 
 
+class StoryListItem(BaseModel):
+    story_id: str
+    premise: str
+    synopsis: str
+    next_decision_no: int
+
+
+class StoryList(BaseModel):
+    stories: list[StoryListItem]
+
+
+class ImportStoryBody(BaseModel):
+    snapshot: dict
+
+
 # ---------- 工具 ----------
 def _card_spec(card: Card) -> DirectionSpec:
     return DirectionSpec(
@@ -143,6 +158,32 @@ async def create_story(body: CreateStoryRequest):
     return StoryCreated(story_id=story.id, synopsis=story.synopsis, opening=opening,
                         decision_no=d.no, cards=d.cards,
                         style_profile_id=story.style_profile_id)
+
+
+@router.get("/stories", response_model=StoryList, tags=["story"])
+async def list_stories():
+    return StoryList(stories=[StoryListItem(**item) for item in registry.story_service.list()])
+
+
+@router.post("/stories/import", status_code=201, tags=["story"])
+async def import_story(body: ImportStoryBody):
+    if not body.snapshot.get("premise"):
+        raise HTTPException(status_code=422, detail={"code": "BAD_SNAPSHOT", "message": "快照缺少 premise"})
+    story = registry.story_service.import_snapshot(body.snapshot)
+    return {"story_id": story.id, "premise": story.premise, "synopsis": story.synopsis}
+
+
+@router.get("/stories/{sid}/export", tags=["story"])
+async def export_story(sid: str = Path(...)):
+    decision_path(sid)  # 不存在则 404
+    return registry.story_service.export_snapshot(sid)
+
+
+@router.delete("/stories/{sid}", status_code=204, tags=["story"])
+async def delete_story(sid: str = Path(...)):
+    if not registry.story_service.delete(sid):
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "故事不存在"})
+    return Response(status_code=204)
 
 
 @router.get("/styles", tags=["story"])

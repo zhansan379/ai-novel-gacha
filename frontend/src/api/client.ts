@@ -4,7 +4,7 @@
  */
 import type {
   ApplyResponse, Blueprint, CardsResponse, DrawResponse, ModelsConfig, StoryCreated,
-  StorySummary, StyleProfile, TimelineResponse,
+  StoryList, StorySnapshot, StorySummary, StyleProfile, TimelineResponse,
 } from '../types'
 
 const BASE = '/v1'
@@ -79,6 +79,30 @@ export const api = {
   },
 
   getStory: (storyId: string) => req<StorySummary>(`/stories/${storyId}`),
+
+  getStories: () => req<StoryList>('/stories'),
+
+  exportStory: (storyId: string) => req<StorySnapshot>(`/stories/${storyId}/export`),
+
+  importStory: (snapshot: object) =>
+    req<{ story_id: string; premise: string; synopsis: string }>('/stories/import', {
+      method: 'POST',
+      body: JSON.stringify({ snapshot }),
+    }),
+
+  deleteStory: async (storyId: string) => {
+    const res = await fetch(`${BASE}/stories/${storyId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      let msg = `删除失败 (${res.status})`
+      try {
+        const j = await res.json()
+        msg = j?.detail?.message ?? j?.detail ?? msg
+      } catch {
+        /* 保持默认 msg */
+      }
+      throw new Error(msg)
+    }
+  },
 
   getBlueprint: (storyId: string) => req<Blueprint>(`/stories/${storyId}/blueprint`),
 
