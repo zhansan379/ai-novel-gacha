@@ -1,16 +1,21 @@
-"""LLM Gateway：按提供商/密钥调度到 OpenAI 兼容实现；无有效配置自动回退本地 mock。
+"""LLM Gateway：按提供商/密钥调度到 OpenAI 兼容实现。
 
-配置优先级：Keychain 运行时配置（前端可设）> 环境变量/.env（settings）。
+配置来源：Keychain 运行时配置（前端可设）> 环境变量/.env（settings）。
+未配置任何模型时不再回退 mock，而是抛出明确错误，提示用户在设置面板完成接入。
 消费方只调用 `gateway.complete(task, system, user)` / `gateway.stream(...)`，不感知具体实现。
 """
 from __future__ import annotations
 
 from app.config import Settings
+from app.llm.errors import ModelError
 from app.llm.routing import Route, route_for
 from app.services.keychain import Keychain
 
-from .mock import MockLLM
 from .openai_compat import OpenAICompatLLM
+
+_NOT_CONFIGURED = (
+    "未配置模型服务：请先在“设置”面板填写服务商、模型名、Base URL 与 API Key 后重试。"
+)
 
 
 class LLMGateway:
@@ -22,7 +27,7 @@ class LLMGateway:
         return route_for(task)
 
     def resolve(self) -> dict | None:
-        """返回当前生效配置 {provider,api_key,model,base_url}；无则返回 None（走 mock）。"""
+        """返回当前生效配置 {provider,api_key,model,base_url}；无则返回 None（未接入模型）。"""
         if self._keychain:
             r = self._keychain.current()
             if r:
@@ -38,7 +43,7 @@ class LLMGateway:
         return None
 
     def mode(self) -> str:
-        return "openai-compat" if self.resolve() else "mock"
+        return "openai-compat" if self.resolve() else "unconfigured"
 
     async def complete(self, *, task: str, system: str, user: str, max_tokens: int | None = None,
                        temperature: float | None = None) -> str:
@@ -48,10 +53,7 @@ class LLMGateway:
 
         cfg = self.resolve()
         if cfg is None:
-            mock = MockLLM()
-            return await mock.complete(task=task, system=system, user=user,
-                                       max_tokens=max_tokens or route.max_tokens,
-                                       temperature=route.temperature)
+            raise ModelError(_NOT_CONFIGURED)
 
         llm = OpenAICompatLLM(
             base_url=cfg["base_url"] or self.settings.openai_compat_base_url,
@@ -71,9 +73,7 @@ class LLMGateway:
 
         cfg = self.resolve()
         if cfg is None:
-            return MockLLM().stream(task=task, system=system, user=user,
-                                    max_tokens=max_tokens or route.max_tokens,
-                                    temperature=route.temperature)
+            raise ModelError(_NOT_CONFIGURED)
 
         llm = OpenAICompatLLM(
             base_url=cfg["base_url"] or self.settings.openai_compat_base_url,

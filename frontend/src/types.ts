@@ -61,7 +61,7 @@ export interface ModelsConfig {
   base_url: string
   configured: boolean
   api_key_set: boolean
-  mode: 'mock' | 'openai-compat'
+  mode: 'openai-compat' | 'unconfigured'
 }
 
 export interface CardsResponse {

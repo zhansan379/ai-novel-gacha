@@ -1,13 +1,14 @@
 """DirectionGenerator：在分歧点调用 LLM 生成 3~5 张候选命运卡（强 schema JSON）。
 
-任何解析失败都回退到内置合法卡池（mock），保证接口稳定可用。
+模型返回无法解析时不再回退内置卡池，而是抛出 ModelError，
+由全局 LLM 异常处理器规整成 502 响应，明确暴露上游质量问题。
 """
 from __future__ import annotations
 
 import json
 
 from app.llm import LLMGateway
-from app.llm.mock import VALIDATE_CARDS
+from app.llm.errors import ModelError
 from app.schemas import Card
 
 _DIRECTION_SYSTEM = """你是一款互动小说系统里的「命运卡生成器」。
@@ -26,10 +27,16 @@ risk_balance(object, 仅SSR必填: {tension:int 1~10, suggested_turn:string≤80
 
 
 def _parse_cards(raw: str) -> list[Card]:
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ModelError(f"命运卡响应不是合法 JSON：{raw[:200]}") from exc
     if isinstance(data, dict):
         data = data.get("cards", [])
-    cards = [Card.model_validate(obj) for obj in data]
+    try:
+        cards = [Card.model_validate(obj) for obj in data]
+    except Exception as exc:
+        raise ModelError(f"命运卡响应不符合 schema：{raw[:200]}") from exc
     return cards
 
 
@@ -44,11 +51,8 @@ class DirectionGenerator:
             f"【待决剧情尾巴】{tail}\n"
             f"【本次分歧节点 #{decision_no}】请输出命运卡 JSON 数组："
         )
-        try:
-            raw = await self._gateway.complete(task="direction", system=_DIRECTION_SYSTEM, user=user)
-            cards = _parse_cards(raw)
-            if not (3 <= len(cards) <= 5) or len({c.card_id for c in cards}) != len(cards):
-                raise ValueError(f"卡池数量/唯一性不合法: {len(cards)}")
-            return cards
-        except Exception:  # 解析失败或上游出错 → 回退内置合法卡池
-            return list(VALIDATE_CARDS)
+        raw = await self._gateway.complete(task="direction", system=_DIRECTION_SYSTEM, user=user)
+        cards = _parse_cards(raw)
+        if not (3 <= len(cards) <= 5) or len({c.card_id for c in cards}) != len(cards):
+            raise ModelError(f"命运卡数量/唯一性不合法: {len(cards)}")
+        return cards

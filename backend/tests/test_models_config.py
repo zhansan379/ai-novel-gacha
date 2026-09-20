@@ -8,11 +8,11 @@ def _client():
     return TestClient(app)
 
 
-def test_models_config_initial_is_mock():
+def test_models_config_initial_unconfigured():
     r = _client().get("/v1/models/config")
     assert r.status_code == 200
     body = r.json()
-    assert body["mode"] == "mock"
+    assert body["mode"] == "unconfigured"
     assert body["configured"] is False
     assert body["api_key_set"] is False
 
@@ -42,10 +42,29 @@ def test_default_base_url_filled():
     assert body["mode"] == "openai-compat"
 
 
-def test_clear_returns_to_mock():
+def test_clear_returns_to_unconfigured():
     c = _client()
     c.post("/v1/models/config", json={"provider": "openai", "model": "gpt-4o-mini", "api_key": "x"})
     r = c.post("/v1/models/config/clear")
     body = r.json()
     assert body["configured"] is False
-    assert body["mode"] == "mock"
+    assert body["mode"] == "unconfigured"
+
+
+def test_custom_provider_persists():
+    """非预设厂商名 + 自填 Base URL 应被 Keychain 原样持久化并可回读。"""
+    c = _client()
+    body = c.post("/v1/models/config", json={
+        "provider": "my-gateway", "model": "local-llamax",
+        "base_url": "https://gw.internal:8443/v1", "api_key": "sk-custom",
+    }).json()
+    assert body["configured"] is True
+    assert body["mode"] == "openai-compat"
+    assert body["provider"] == "my-gateway"
+    assert body["base_url"] == "https://gw.internal:8443/v1"
+
+    resolved = registry.gateway.resolve()
+    assert resolved["provider"] == "my-gateway"
+    assert resolved["base_url"] == "https://gw.internal:8443/v1"
+    assert resolved["model"] == "local-llamax"
+    assert resolved["api_key"] == "sk-custom"

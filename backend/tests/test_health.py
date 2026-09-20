@@ -9,4 +9,4 @@ def test_health():
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "ok"
-    assert "app" in body  # 当前 LLM 运行模式（mock / openai-compat）
+    assert "app" in body  # 当前 LLM 运行模式（unconfigured / openai-compat）

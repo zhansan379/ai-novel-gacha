@@ -11,9 +11,22 @@ from app.llm.routing import Route
 from .errors import ModelError, QuotaError
 
 
+def completions_url(base_url: str) -> str:
+    """把用户填写的 Base URL 归一到完整 chat/completions 端点。
+
+    兜底处理：即便用户贴的是完整端点（结尾已带 /chat/completions），
+    也不再重复拼接，避免生成 /chat/completions/chat/completions 这类 404 路径。
+    """
+    base = base_url.rstrip("/")
+    if base.endswith("/chat/completions"):
+        return base
+    return f"{base}/chat/completions"
+
+
 class OpenAICompatLLM:
     def __init__(self, *, base_url: str, api_key: str, model: str, route: Route, timeout: float) -> None:
         self.base_url = base_url.rstrip("/")
+        self.endpoint = completions_url(self.base_url)
         self.api_key = api_key
         self.model = model
         self.route = route
@@ -33,7 +46,7 @@ class OpenAICompatLLM:
         }
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                res = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+                res = await client.post(self.endpoint, json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise ModelError(f"模型请求失败: {exc}") from exc
 
@@ -63,7 +76,7 @@ class OpenAICompatLLM:
         }
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", f"{self.base_url}/chat/completions",
+                async with client.stream("POST", self.endpoint,
                                           json=payload, headers=headers) as res:
                     if res.status_code == 402 or res.status_code == 429:
                         body = await res.aread()

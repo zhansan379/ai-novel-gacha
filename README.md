@@ -2,7 +2,7 @@
 
 > 以「**抽卡（Gacha）** / **自由输入**」作为剧情决策核心机制的 AI 互动小说生成系统。用户在剧情分歧点：抽一张命运卡（盲抽/明选）或用自然语言自由引导，系统据此连续生成剧情连贯、去 AI 味的长篇小说正文。
 
-**当前状态**：MVP 决策闭环**已可跑通**——灵感开书 → 自动构建世界观/历史/角色/卷章大纲 → 抽卡/自由输入 → 生成正文 → 去 AI 味/一致性质检，且 **SQLite 持久化**（重启不丢）。未配置模型 Key 时自动以**本地 mock 生成**降级演示；配置 Key 即切换真实模型。
+**当前状态**：MVP 决策闭环**已可跑通**——灵感开书 → 自动构建世界观/历史/角色/卷章大纲 → 抽卡/自由输入 → 生成正文 → 去 AI 味/一致性质检，且 **SQLite 持久化**（重启不丢）。需在设置面板/接口配置模型（BYOK），未接入真实模型时生成会明确报错提示，不再静默降级 mock。
 
 ---
 
@@ -92,7 +92,7 @@ curl -X POST http://localhost:8000/v1/models/config \
 #   API_KEYS='{"deepseek":"sk-xxxx"}'
 #   BASE_URLS='{"deepseek":"https://api.deepseek.com/v1"}'
 ```
-> 配置优先级：页面/接口保存的 Keychain > 环境变量/.env。未配置时自动用本地 Mock。
+> 配置优先级：页面/接口保存的 Keychain > 环境变量/.env。未接入模型时生成会报错提示（不再有本地 mock 降级）。
 > 状态查询：`GET /v1/models/config`（Key 脱敏）；清空：`POST /v1/models/config/clear`。
 
 ### 前端
@@ -110,15 +110,15 @@ npm run dev            # 打开 http://localhost:5173（/v1 自动代理到 :800
 
 - [x] 后端骨架 + 核心抽卡决策引擎（数据模型 / 加权盲抽 / 明选）
 - [x] 前端 Vue3 决策闭环 UI（盲抽/明选/自由输入）
-- [x] LLM Gateway（OpenAI 兼容多提供商 + BYOK + 本地 mock 降级）
+- [x] LLM Gateway（OpenAI 兼容多提供商 + BYOK，取消 mock 降级）
 - [x] DirectionGenerator：分歧点生成真实卡池 + WriterAgent 正文生成
 - [x] **决策闭环 API + 前端接入**（抽卡 → 生成正文 跑通）
 - [x] **持久化：SQLite**（重启不丢；写透 + 内存缓存，接口对服务层不变）
 - [x] **一致性质检 + 去 AI 味 lint**（生成后自动扫描；`post /passages/{no}/lint` 可重扫）
-- [x] **前置构建：世界观 / 历史线 / 角色 / 卷·章大纲**（LLM 强 schema + mock 占位，`GET /blueprint`）
+- [x] **前置构建：世界观 / 历史线 / 角色 / 卷·章大纲**（LLM 强 schema，解析失败回退内置占位，`GET /blueprint`）
 - [x] **文风预设 StyleProfile**（金庸武侠/现代都市/玄幻修仙/悬疑克苏鲁/沉稳冷峻，可随某本故事选择）
 - [x] **一致性关联角色/伏笔状态**（结构化设定事实清单注入校验 + 伏笔账本，`GET /foreshadows`）
-- [x] **正文 SSE 流式输出**（`POST /decisions/{no}/stream`，逐 token 增量显示；真机走流式、mock 按块）
+- [x] **正文 SSE 流式输出**（`POST /decisions/{no}/stream`，逐 token 增量显示）
 
 ---
 

@@ -62,7 +62,7 @@ async function createStory() {
       </div>
 
       <p v-if="store.error" class="error">{{ store.error }}</p>
-      <p class="note">MVP：开书 → 设定/大纲 → 抽卡 → 正文流式 → 质检已可跑通（未配 Key 用本地 Mock）。</p>
+      <p class="note">MVP：开书 → 设定/大纲 → 抽卡 → 正文流式 → 质检已可跑通（需在设置面板配置模型）。</p>
     </div>
   </section>
 </template>

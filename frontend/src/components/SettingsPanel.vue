@@ -1,20 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { ModelsConfig } from '../types'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
+// 下拉中的"自定义"哨兵值；选中后由 customName 决定实际厂商名
+const CUSTOM = '__custom__'
 const PRESETS: { provider: string; base: string; placeholder: string }[] = [
   { provider: 'deepseek', base: 'https://api.deepseek.com/v1', placeholder: 'deepseek-chat' },
   { provider: 'openai', base: 'https://api.openai.com/v1', placeholder: 'gpt-4o-mini' },
   { provider: 'moonshot', base: 'https://api.moonshot.ai/v1', placeholder: 'kimi-k2-thinking' },
   { provider: 'groq', base: 'https://api.groq.com/openai/v1', placeholder: 'llama-3.3-70b-versatile' },
   { provider: 'ollama', base: 'http://localhost:11434/v1', placeholder: 'qwen2.5' },
+  { provider: CUSTOM, base: '', placeholder: '自定模型名' },
 ]
 
 const provider = ref('deepseek')
+const customName = ref('')
 const model = ref('')
 const baseUrl = ref('')
 const apiKey = ref('')
@@ -27,10 +31,23 @@ const ok = ref('')
 onMounted(load)
 watch(() => props.open, (o) => { if (o) load() })
 
+// 实际提交给后端的厂商名：选预设 = 预设名；选自定义 = 自定义名称
+const effectiveProvider = computed(() =>
+  provider.value === CUSTOM ? customName.value.trim() : provider.value,
+)
+
 async function load() {
   try {
     config.value = await api.getModelsConfig()
-    provider.value = config.value.provider || 'deepseek'
+    // 已有配置若不在预设中（此前用自定义厂商接入），回显为"自定义"并带入名称
+    const cur = config.value?.provider
+    if (cur && cur !== CUSTOM && !PRESETS.some((x) => x.provider === cur)) {
+      provider.value = CUSTOM
+      customName.value = cur
+    } else {
+      provider.value = cur || 'deepseek'
+      customName.value = ''
+    }
     model.value = ''
     baseUrl.value = ''
     apiKey.value = ''
@@ -41,18 +58,20 @@ function applyPreset() {
   const p = PRESETS.find((x) => x.provider === provider.value)
   baseUrl.value = p?.base ?? ''
   if (!model.value) model.value = p?.placeholder ?? ''
+  customName.value = ''
   ok.value = ''
   error.value = null
 }
 
 async function save() {
+  if (provider.value === CUSTOM && !customName.value.trim()) { error.value = '请填写自定义服务商名称'; return }
   if (!model.value.trim()) { error.value = '请填写模型名'; return }
   saving.value = true
   error.value = null
   ok.value = ''
   try {
     config.value = await api.saveModelsConfig({
-      provider: provider.value.trim(), model: model.value.trim(),
+      provider: effectiveProvider.value, model: model.value.trim(),
       base_url: baseUrl.value.trim(), api_key: apiKey.value.trim(),
     })
     ok.value = config.value.mode === 'openai-compat'
@@ -68,7 +87,7 @@ async function clear() {
   ok.value = ''
   try {
     config.value = await api.clearModelsConfig()
-    ok.value = '已回到本地 mock'
+    ok.value = '已清除配置'
   } catch (e) { error.value = msg(e) } finally { clearing.value = false }
 }
 
@@ -82,7 +101,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
         <header class="head">
           <h3>模型接入配置</h3>
           <span class="mode" :class="config?.mode === 'openai-compat' ? 'on' : 'off'">
-            {{ config?.mode === 'openai-compat' ? '真实模型' : '本地 Mock' }}
+            {{ config?.mode === 'openai-compat' ? '真实模型' : '未配置' }}
           </span>
           <button class="close" @click="emit('close')">×</button>
         </header>
@@ -93,8 +112,14 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
         <label class="field">
           <span>服务商</span>
           <select v-model="provider" @change="applyPreset">
-            <option v-for="p in PRESETS" :key="p.provider" :value="p.provider">{{ p.provider }}</option>
+            <option v-for="p in PRESETS" :key="p.provider" :value="p.provider">{{ p.provider === CUSTOM ? '自定义服务商' : p.provider }}</option>
           </select>
+        </label>
+
+        <label v-if="provider === CUSTOM" class="field">
+          <span>自定义服务商名称</span>
+          <input v-model="customName" :placeholder="effectiveProvider || '如 my-gateway'" />
+          <small class="sub">任意名称均可，配合下方 Base URL 接入你的 OpenAI 兼容网关</small>
         </label>
 
         <label class="field">
@@ -118,7 +143,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
           </button>
           <button class="btn ghost" :disabled="clearing" @click="clear">清除配置</button>
         </div>
-        <p class="hint">保存后 Key 持久化到后端（SQLite），但查询接口不回传明文；未配置时自动用本地 Mock 演示。</p>
+        <p class="hint">保存后 Key 持久化到后端（SQLite），但查询接口不回传明文；未配置真实模型时生成会报错，请在用前先在此完成接入。Base URL 支持完整端点，重复的 /chat/completions 会自动去重。</p>
       </div>
     </div>
   </Teleport>
@@ -163,6 +188,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
   width: 100%; box-sizing: border-box; padding: 8px 10px;
   border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit;
 }
+.sub { display: block; font-size: 11px; color: #9ca3af; margin-top: 4px; line-height: 1.4; }
 .actions { display: flex; gap: 10px; margin-top: 14px; }
 .btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; }
 .btn.primary { background: #1f2937; color: #fff; }

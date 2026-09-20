@@ -192,7 +192,7 @@ async def set_model_config(body: ModelConfigRequest):
 
 @router.post("/models/config/clear", tags=["config"])
 async def clear_model_config():
-    """清空前端配置，回到 mock/环境变量模式。"""
+    """清空前端配置；此后未再配置时将报错提示接入模型。"""
     registry.keychain.clear()
     return {"configured": False, "mode": registry.gateway.mode()}
 
