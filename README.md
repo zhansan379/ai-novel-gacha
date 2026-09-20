@@ -2,7 +2,7 @@
 
 > 以「**抽卡（Gacha）** / **自由输入**」作为剧情决策核心机制的 AI 互动小说生成系统。用户在剧情分歧点：抽一张命运卡（盲抽/明选）或用自然语言自由引导，系统据此连续生成剧情连贯、去 AI 味的长篇小说正文。
 
-**当前状态**：MVP 工程骨架（后端 FastAPI + 核心抽卡引擎；前端 Vue3 决策闭环 UI 可交互）。正文生成 / 世界观·历史·大纲 / 一致性校验 / 去 AI 味等仍待接入 LLM。
+**当前状态**：MVP 决策闭环**已可跑通**——灵感开书 → 生成卡池 → 盲抽/明选/自由输入 → 生成正文 → 进入下一决策。未配置模型 Key 时自动以**本地 mock 生成**降级演示；配置 Key 即切换真实模型。
 
 ---
 
@@ -77,11 +77,21 @@ uv run uvicorn app.main:app --reload --port 8000
 # 健康检查: GET http://localhost:8000/v1/health
 ```
 
+### 启用真实模型（可选，默认本地 mock）
+```bash
+# 在 backend 下创建 .env（已 gitignore，勿提交）：
+#   DEFAULT_PROVIDER=deepseek
+#   DEFAULT_MODEL=deepseek-chat
+#   API_KEYS='{"deepseek":"sk-xxxx"}'
+#   BASE_URLS='{"deepseek":"https://api.deepseek.com/v1"}'
+uv run uvicorn app.main:app --reload --port 8000   # 重启后即切真实模型
+```
+
 ### 前端
 ```bash
 cd frontend
 npm install
-npm run dev            # 打开 http://localhost:5173
+npm run dev            # 打开 http://localhost:5173（/v1 自动代理到 :8000）
 ```
 
 > 说明：PyVenv 等运行依赖均未提交，首次需 `uv sync` / `npm install`。
@@ -91,11 +101,14 @@ npm run dev            # 打开 http://localhost:5173
 ## 路线图
 
 - [x] 后端骨架 + 核心抽卡决策引擎（数据模型 / 加权盲抽 / 明选）
-- [x] 前端 Vue3 决策闭环 UI（盲抽/明选/自由输入，内置占位卡池）
-- [ ] LLM Gateway（OpenAI 兼容多提供商 + BYOK）接入
-- [ ] DirectionGenerator：分歧点生成真实卡池
+- [x] 前端 Vue3 决策闭环 UI（盲抽/明选/自由输入）
+- [x] LLM Gateway（OpenAI 兼容多提供商 + BYOK + 本地 mock 降级）
+- [x] DirectionGenerator：分歧点生成真实卡池 + WriterAgent 正文生成
+- [x] **决策闭环 API + 前端接入**（抽卡 → 生成正文 跑通）
+- [ ] 一致性校验（角色/伏笔/时间线回归）
+- [ ] 去 AI 味 lint + 文风预设（StyleProfile）
 - [ ] 前置构建：世界观 / 历史线 / 大纲（含 premise 公式与三幕模板）
-- [ ] WriterAgent 流式正文生成 + 一致性校验 + 去 AI 味 lint
+- [ ] 持久化：SQLite（当前为内存存储，重启即丢）
 
 ---
 
