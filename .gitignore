@@ -1,0 +1,28 @@
+# --- 依赖/构建产物 ---
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+dist/
+.cache/
+
+# --- 第三方调研克隆（不纳入本仓库）---
+novel_projects/
+
+# --- 本地状态 ---
+*.sqlite
+*.sqlite3
+*.db
+
+# --- 环境变量/密钥 ---
+.env
+.env.*
+!.env.example
+
+# --- 编辑工具 ---
+.idea/
+.vscode/
+*.log
+.DS_Store
