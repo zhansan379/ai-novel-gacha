@@ -182,10 +182,10 @@ function kindLabel(kind: string) {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
 .card.reveal {
-  animation: reveal 0.3s ease;
+  animation: reveal 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; /* spring-in */
 }
 @keyframes reveal {
-  from { transform: scale(0.92); opacity: 0; }
+  from { transform: translateY(10px) scale(0.9); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
 .pulse {
