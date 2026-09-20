@@ -16,6 +16,7 @@ interface ActionResult {
 export const useDecisionStore = defineStore('decision', () => {
   // 故事状态
   const storyId = ref<string | null>(null)
+  const title = ref('')
   const synopsis = ref('')
   const passages = ref<string[]>([])
 
@@ -33,6 +34,34 @@ export const useDecisionStore = defineStore('decision', () => {
   }
   function closeDraw() {
     drawOpen.value = false
+  }
+
+  // 收藏/标记当前页（按 story_id 持久化到 localStorage）
+  const BOOKMARK_KEY = 'choice_novel:bookmarks'
+  const bookmarked = ref(false)
+  function _loadBookmarks(): string[] {
+    try { return JSON.parse(localStorage.getItem(BOOKMARK_KEY) || '[]') as string[] }
+    catch { return [] }
+  }
+  function syncBookmark() {
+    bookmarked.value = !!storyId.value && _loadBookmarks().includes(storyId.value)
+  }
+  /** 当前收藏的所有 story_id（保持收藏先后顺序）。 */
+  function getBookmarkedIds(): string[] {
+    return _loadBookmarks()
+  }
+  /** 新增/移除某本书的收藏，并同步当前阅读页书签态。 */
+  function setBookmarked(id: string, on: boolean) {
+    const arr = _loadBookmarks()
+    const has = arr.includes(id)
+    if (on && !has) arr.push(id)
+    else if (!on && has) arr.splice(arr.indexOf(id), 1)
+    localStorage.setItem(BOOKMARK_KEY, JSON.stringify(arr))
+    if (id === storyId.value) bookmarked.value = on
+  }
+  function toggleBookmark() {
+    if (!storyId.value) return
+    setBookmarked(storyId.value, !bookmarked.value)
   }
 
   // 流程控制
@@ -53,10 +82,12 @@ export const useDecisionStore = defineStore('decision', () => {
     try {
       const s = await api.createStory(text, styleProfileId)
       storyId.value = s.story_id
+      title.value = text
       synopsis.value = s.synopsis
       passages.value = [s.opening]
       decisionNo.value = s.decision_no
       cards.value = s.cards
+      syncBookmark()
       _resetDecisionLocalState()
     } catch (e) {
       error.value = errMsg(e)
@@ -72,8 +103,10 @@ export const useDecisionStore = defineStore('decision', () => {
     try {
       const s = await api.getStory(existingId)
       storyId.value = existingId
+      title.value = s.premise
       synopsis.value = s.synopsis
       passages.value = s.passages
+      syncBookmark()
       await loadCards(existingId, s.next_decision_no)
     } catch (e) {
       error.value = errMsg(e)
@@ -227,7 +260,8 @@ export const useDecisionStore = defineStore('decision', () => {
   }
 
   function reset() {
-    storyId.value = null; synopsis.value = ''; passages.value = []
+    storyId.value = null; title.value = ''; synopsis.value = ''; passages.value = []
+    bookmarked.value = false
     decisionNo.value = null; cards.value = []; revealed.value = null
     customInstruction.value = ''; loading.value = false; error.value = null
     lastAction.value = null; nextDecisionNo.value = null
@@ -236,9 +270,10 @@ export const useDecisionStore = defineStore('decision', () => {
   }
 
   return {
-    storyId, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
+    storyId, title, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
     loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
     drawOpen, toggleDraw, closeDraw,
+    bookmarked, toggleBookmark, getBookmarkedIds, setBookmarked,
     create, load, draw, apply, applyCard, undo, next, pickLocal, reset,
   }
 })

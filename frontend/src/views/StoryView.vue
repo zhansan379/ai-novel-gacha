@@ -34,14 +34,33 @@ function goLore() {
   <section class="story">
     <article class="reader">
       <header class="chapter-head">
-        <p class="book-crumb">AI 帮你写互动小说</p>
-        <h2 class="chapter-title">正文</h2>
+        <nav class="crumb" aria-label="面包屑">
+          <a
+            class="crumb-link"
+            @click.prevent="router.push({ name: 'home' })"
+          >书架</a>
+          <span class="crumb-sep">&gt;</span>
+          <span class="crumb-current">{{ store.title || '未命名' }}</span>
+        </nav>
         <p class="meta" v-if="!store.loading">
           <span>{{ store.passages.length }} 段</span>
           <span class="dot">·</span>
           <span>约 {{ wordCount }} 字</span>
           <template v-if="store.decisionNo"><span class="dot">·</span><span>已到节点 {{ store.decisionNo }}</span></template>
         </p>
+
+        <!-- 分割线右侧书签：用于收藏/标记当前页 -->
+        <button
+          class="bookmark"
+          :class="{ on: store.bookmarked }"
+          :aria-pressed="store.bookmarked"
+          aria-label="收藏本书"
+          @click="store.toggleBookmark"
+        >
+          <svg viewBox="150 0 300 380" width="34" height="46" aria-hidden="true">
+            <path d="M 150 0 L 450 0 L 450 380 L 300 320 L 150 380 Z" fill="currentColor" />
+          </svg>
+        </button>
       </header>
 
       <div class="prose">
@@ -100,28 +119,49 @@ function goLore() {
   font-size: var(--reader-font-size, inherit);
 }
 .chapter-head {
-  text-align: center;
-  margin-bottom: 22px;
+  position: relative;
+  margin-bottom: 40px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
 }
-.book-crumb {
-  margin: 0 0 8px;
-  color: var(--muted);
-  font-size: 13px;
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1a1a1a;
+  font-size: 14px;
+  line-height: 1;
+  font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
-.chapter-title {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  color: var(--text);
+.crumb-link {
+  color: #3a3a3a;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.crumb-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.crumb-sep {
+  color: #9c9c9c;
+  font-weight: 700;
+}
+.crumb-current {
+  color: #111;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .meta {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 13px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
 }
 .meta .dot {
@@ -132,7 +172,6 @@ function goLore() {
 }
 .passage p {
   margin: 0 0 14px;
-  text-indent: 2em;
   line-height: 1.9;
   white-space: pre-wrap;
 }
@@ -143,7 +182,6 @@ function goLore() {
   text-align: center;
 }
 .streaming {
-  text-indent: 2em;
   line-height: 1.9;
   color: var(--muted);
   white-space: pre-wrap;
@@ -213,7 +251,8 @@ function goLore() {
   to { opacity: 1; }
 }
 .draw-panel {
-  width: min(1200px, 100%);
+  width: fit-content;
+  max-width: min(1200px, 100%);
   animation: deck-in 0.22s ease both;
 }
 @keyframes deck-in {
@@ -239,6 +278,36 @@ function goLore() {
 .draw-close:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* ---------- 分割线右侧书签：丝带造型，固定于面包屑分割线右端 ---------- */
+.bookmark {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  transform: translateY(-6px);
+  z-index: 5;
+  width: 34px;
+  height: 46px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #c9cecb;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 4px rgba(80, 60, 20, 0.18));
+  transition: color 0.2s, transform 0.15s;
+}
+.bookmark:hover {
+  color: var(--accent);
+  transform: translateY(-6px) scale(1.06);
+}
+.bookmark.on {
+  color: var(--accent);
+}
+.bookmark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 @media (max-width: 720px) {

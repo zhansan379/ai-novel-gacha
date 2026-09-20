@@ -192,6 +192,7 @@ async function createStory() {
           <h3 class="shelf-title">书架 <span v-if="stories.length" class="shelf-count">{{ stories.length }} 本</span></h3>
           <div class="bar-actions">
             <span class="import-hint">仅支持导入 .json 快照</span>
+            <button type="button" class="btn btn-secondary" @click="router.push({ name: 'favorites' })">我的收藏</button>
             <button type="button" class="btn btn-secondary btn-import" title="仅支持导入导出生成 .json 快照"
                     @click="fileInput?.click()">导入</button>
             <input ref="fileInput" type="file" accept=".json,application/json" class="hidden-file"
