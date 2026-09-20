@@ -137,7 +137,7 @@ function labelCn(label: string) {
   border-radius: 0;
   padding: 14px 15px 13px;
   text-align: left;
-  background: #fffdf6;
+  background: var(--bg-card);
   position: relative;
   overflow: hidden;
   cursor: pointer;
@@ -174,10 +174,11 @@ function labelCn(label: string) {
   position: relative;
   z-index: 1;
   text-align: center;
+  color: var(--text);
 }
 .card p {
   margin: 0 0 12px;
-  color: #374151;
+  color: var(--text);
   font-size: 14px;
   flex: 1;
   position: relative;
@@ -196,8 +197,8 @@ function labelCn(label: string) {
   align-self: flex-start;
   font-size: 12px;
   letter-spacing: 1px;
-  color: #6b5f4a;
-  background: #f3f4f6;
+  color: var(--muted);
+  background: var(--accent-soft);
   padding: 2px 8px;
   border-radius: 0;
   position: relative;
@@ -246,6 +247,11 @@ function labelCn(label: string) {
   background-size: 260% 260%;
   animation: sheen-sweep 2.6s ease-in-out infinite;
 }
+/* SSR 卡面为固定亮彩虹底，标题/正文始终用深色，避免夜间模式变白字后看不清 */
+.rarity-ssr h4,
+.rarity-ssr p {
+  color: #33264d;
+}
 
 .rarity-n .card-rarity { color: #6b7280; }
 .rarity-r .card-rarity { color: #4a6c93; }
@@ -277,7 +283,7 @@ function labelCn(label: string) {
 }
 .btn.primary {
   background: var(--accent);
-  color: #fffdf6;
+  color: var(--on-accent);
   transition: background-color 0.15s, transform 0.15s;
 }
 .btn.primary:hover:not(:disabled) {
@@ -311,7 +317,7 @@ function labelCn(label: string) {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  background: #f2efe4;
+  background: var(--accent-soft);
   border: 1px solid var(--border);
   border-radius: 0;
   padding: 10px 12px;
@@ -348,6 +354,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 0;
   font-family: inherit;
-  background: #fffdf6;
+  background: var(--bg-card);
+  color: var(--text);
 }
 </style>

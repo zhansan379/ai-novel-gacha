@@ -87,7 +87,7 @@ function goLore() {
 
 <style scoped>
 .story {
-  max-width: 820px;
+  max-width: var(--reader-width, 820px);
   margin: 0 auto;
 }
 
@@ -98,6 +98,8 @@ function goLore() {
   border-radius: 0;
   padding: 34px 40px 26px;
   box-shadow: 0 8px 30px rgba(80, 60, 20, 0.08);
+  font-family: var(--reader-font);
+  font-size: var(--reader-font-size, inherit);
 }
 .chapter-head {
   text-align: center;
@@ -105,7 +107,7 @@ function goLore() {
 }
 .book-crumb {
   margin: 0 0 8px;
-  color: #a89782;
+  color: var(--muted);
   font-size: 13px;
 }
 .chapter-title {
@@ -113,11 +115,11 @@ function goLore() {
   font-size: 26px;
   font-weight: 800;
   letter-spacing: 1px;
-  color: #3a3124;
+  color: var(--text);
 }
 .meta {
   margin: 8px 0 0;
-  color: #a89782;
+  color: var(--muted);
   font-size: 13px;
   display: flex;
   align-items: center;
@@ -125,20 +127,20 @@ function goLore() {
   gap: 6px;
 }
 .meta .dot {
-  color: #d9cfb8;
+  color: var(--border);
 }
 .synopsis {
   margin: 0 auto 20px;
   padding: 14px 18px;
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
-  color: #6b5f4a;
+  color: var(--muted);
   font-size: 14px;
   line-height: 1.7;
   border-radius: 0;
 }
 .prose {
-  color: #443a2c;
+  color: var(--text);
 }
 .passage p {
   margin: 0 0 14px;
@@ -147,7 +149,7 @@ function goLore() {
   white-space: pre-wrap;
 }
 .hint {
-  color: #a89782;
+  color: var(--muted);
 }
 .phase {
   text-align: center;
@@ -155,7 +157,7 @@ function goLore() {
 .streaming {
   text-indent: 2em;
   line-height: 1.9;
-  color: #6b5f4a;
+  color: var(--muted);
   white-space: pre-wrap;
   border-left: 3px solid #8a9b6e;
   padding-left: 10px;
@@ -182,7 +184,7 @@ function goLore() {
   border: 1px solid var(--border);
   border-radius: 0;
   overflow: hidden;
-  background: #f6f0e3;
+  background: var(--accent-soft);
 }
 .nav-btn {
   flex: 1;

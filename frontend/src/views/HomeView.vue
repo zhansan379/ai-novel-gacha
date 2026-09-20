@@ -114,7 +114,7 @@ async function createStory() {
   font-size: 34px;
   margin: 0 0 12px;
   letter-spacing: 1px;
-  color: #3a3124;
+  color: var(--text);
   font-weight: 800;
 }
 /* 签名细节：关键短语下划线高亮，单一强调色 */
@@ -156,7 +156,7 @@ async function createStory() {
 }
 .btn.primary {
   background: var(--accent);
-  color: #fffdf6;
+  color: var(--on-accent);
   font-weight: 600;
   box-shadow: 0 6px 18px rgba(138, 106, 59, 0.3);
   transition: background-color 0.15s, transform 0.15s, box-shadow 0.2s;
@@ -190,7 +190,7 @@ async function createStory() {
 .style-desc {
   max-width: 420px;
   text-align: left;
-  color: #a89782;
+  color: var(--muted);
   font-size: 13px;
 }
 .error {
@@ -218,7 +218,7 @@ async function createStory() {
   to { transform: rotate(360deg); }
 }
 .phase {
-  color: #3a3124;
+  color: var(--text);
   font-weight: 500;
 }
 .dots i {
@@ -233,7 +233,7 @@ async function createStory() {
 }
 .note {
   margin-top: 34px;
-  color: #a89782;
+  color: var(--muted);
   font-size: 13px;
 }
 @media (max-width: 640px) {

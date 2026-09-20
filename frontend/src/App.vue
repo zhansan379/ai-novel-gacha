@@ -2,13 +2,17 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SettingsPanel from './components/SettingsPanel.vue'
+import ReadingSettingsPanel from './components/ReadingSettingsPanel.vue'
 import { useDecisionStore } from './stores/decision'
+import { useReadingStore } from './stores/reading'
 
 const route = useRoute()
 const router = useRouter()
 const store = useDecisionStore()
+const rstore = useReadingStore() // 实例化即应用阅读主题/字体/字号/宽度
 
 const settingsOpen = ref(false)
+const readingOpen = ref(false)
 
 // 仅在阅读/世界观页显示"世界观 / 抽卡"（需要故事上下文）
 const isInStory = computed(() => route.name === 'story' || route.name === 'lore')
@@ -16,6 +20,9 @@ const storyId = computed(() => (route.params.id as string) || null)
 
 function goLore() {
   if (storyId.value) router.push({ name: 'lore', params: { id: storyId.value } })
+}
+function scrollTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 </script>
 
@@ -46,6 +53,29 @@ function goLore() {
           <span class="rail-label">模型</span>
         </button>
 
+        <button class="rail-btn" title="阅读设置" @click="readingOpen = true">
+          <span class="rail-aa" aria-hidden="true">Aa</span>
+          <span class="rail-label">阅读</span>
+        </button>
+
+        <button
+          class="rail-btn"
+          :class="{ active: rstore.isNight }"
+          :title="rstore.isNight ? '切换日间模式' : '切换夜间模式'"
+          @click="rstore.toggleNight"
+        >
+          <svg v-if="rstore.isNight" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.5" />
+            <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19" />
+          </svg>
+          <span class="rail-label">{{ rstore.isNight ? '夜间' : '日间' }}</span>
+        </button>
+
         <template v-if="isInStory">
           <button class="rail-btn" title="世界观 · 历史线" @click="goLore">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
@@ -73,10 +103,19 @@ function goLore() {
             <span class="rail-label">{{ store.drawOpen ? '收起' : '抽卡' }}</span>
           </button>
         </template>
+
+        <button class="rail-btn" title="回到顶部" @click="scrollTop">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
+          <span class="rail-label">顶部</span>
+        </button>
       </aside>
     </div>
 
     <SettingsPanel :open="settingsOpen" @close="settingsOpen = false" />
+    <ReadingSettingsPanel :open="readingOpen" @close="readingOpen = false" />
   </div>
 </template>
 
@@ -90,7 +129,8 @@ function goLore() {
   padding: 24px 16px 48px;
 }
 .app-main {
-  max-width: 820px;
+  /* 容量放宽到超出最大页面宽度选项，避免正文宽度被外层容器钳制 */
+  max-width: 1320px;
   min-width: 0;
 }
 .app-rail {
@@ -129,6 +169,12 @@ function goLore() {
 }
 .rail-btn svg {
   display: block;
+}
+.rail-aa {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
 }
 .rail-label {
   font-size: 11px;
