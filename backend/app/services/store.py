@@ -54,6 +54,8 @@ class Story:
     id: str
     premise: str
     synopsis: str = ""
+    # 简介出厂事实校验门结果：{checked, passed, issues, retries, ...}；空 dict = 老故事/未做校验。
+    synopsis_checked: dict = field(default_factory=dict)
     passages: list[dict] = field(default_factory=list)  # {no, decision_no, content, lint, consistency}
     decisions: dict[int, Decision] = field(default_factory=dict)
     next_decision_no: int = 1
@@ -150,6 +152,7 @@ class StoryStore:
             "story_id": story.id,
             "premise": story.premise,
             "synopsis": story.synopsis,
+            "synopsis_checked": story.synopsis_checked,
             "next_decision_no": story.next_decision_no,
             "style_profile_id": story.style_profile_id,
             "passages": [
@@ -189,6 +192,7 @@ class StoryStore:
             id=str(uuid.uuid4()),
             premise=data.get("premise", ""),
             synopsis=data.get("synopsis", "") or "",
+            synopsis_checked=data.get("synopsis_checked") or {},
             passages=[
                 {"no": p.get("no"), "decision_no": p.get("decision_no"),
                  "content": p.get("content") or ""}

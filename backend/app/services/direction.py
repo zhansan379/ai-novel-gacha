@@ -23,6 +23,7 @@ _DIRECTION_SYSTEM = """你是一款互动小说系统里的「命运卡生成器
   · cause：这个事件为什么发生 / 破绽或线索是如何被察觉或暴露的（具体诱因，不可含糊）
   · aftermath：事件落定后对各方（主角、配角、对手、社会/机构）的影响与反应方向
   · suspense：落定后要给下一步留的悬念钩子（让读者想继续往下选）
+- 若【当前设定状态】含真实事实基座，命运卡不得虚构与真实事实相悖的"事实"；确需架空改写须契合设定
 - 严格只输出一个 JSON 数组，不要任何额外文字。
 数组元素字段：
 card_id(string,唯一) title(string≤40) content(string≤200)
@@ -52,13 +53,14 @@ class DirectionGenerator:
 
     async def generate(self, *, premise: str, synopsis: str, tail: str, decision_no: int,
                        context: str = "", carryover: str = "") -> list[Card]:
-        ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
+        ctx = (f"\n【当前设定状态（须尊重；含真实事实且与简介冲突时以事实为准）】\n{context}"
+               if context else "")
         cov = f"\n【需接着回收的悬念线（新卡应顺着它走或与它并行，别让设定线悬空）】\n{carryover}" if carryover else ""
         user = (
+            f"{ctx}{cov}\n"
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
             f"【待决剧情尾巴】{tail}\n"
-            f"{ctx}{cov}\n"
             f"【本次分歧节点 #{decision_no}】请输出命运卡 JSON 数组："
         )
         raw = await self._gateway.complete(task="direction", system=_DIRECTION_SYSTEM, user=user)

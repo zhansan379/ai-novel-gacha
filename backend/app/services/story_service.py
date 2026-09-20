@@ -10,10 +10,11 @@ from app.config import settings
 from app.deslop import scan as deslop_scan
 from app.llm import LLMGateway
 from app.schemas import Card, DirectionKind, DirectionSpec
-from app.services.blueprint import BlueprintBuilder
+from app.services.blueprint import BlueprintBuilder, _seed_grounding
 from app.services.direction import DirectionGenerator
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
-from app.services.grounding import GroundingService
+from app.services.grounding import GROUNDING_LABEL, GroundingService
+from app.services.jsonparse import loads_coerce
 from app.services.narrative import NarrativeUpdater
 from app.services.progression import ProgressionService
 from app.services.retrieval import ProfileDeterminer, RetrievalProfile, prefetch
@@ -22,7 +23,19 @@ from app.services.styles import DEFAULT_STYLE_ID, get_style, match_style_id, sty
 from app.services.writer import WriterAgent
 
 _INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），
-说明核心设定、主角目标与可能的冲突走向。只输出简介本身。"""
+说明核心设定、主角目标与可能的冲突走向。只输出简介本身。
+若提示词里附有「真实事实基座」，必须以它作为事实基准：允许在其上展开想象，但不得虚构与真实记载相悖的
+“事实”（真实人物/公司/产品的任职、年份、事件、经营范围、定义等须与事实一致）；确需架空改写的要素，
+须在简介里含蓄点出它是「改写设定」而非史实。"""
+
+_INIT_END = "请产出简介："
+
+_SYNOPSIS_CHECK_SYSTEM = """你是小说开书的事实行审查。前提或简介可能点名真实人物/公司/产品/历史事件。
+比对「简介」与「真实事实基座」，找出简介里与真实事实相违背的臆断（真实人物/公司/产品的任职、年份、
+事件、经营范围、产品定义等与事实不符）。若该要素在简介里已明示为架空改写且不冒充真实，不算冲突。
+只输出一个 JSON 对象，不要 markdown：
+{"passed": bool, "issues": [{"type":"FACT","severity":"critical|warning","fragment":"简介原文片段","reason":"与事实冲突说明"}]}
+无冲突时 passed 为 true、issues 为 []。"""
 
 
 def chapter_to_info(ch) -> dict:
@@ -129,23 +142,100 @@ class StoryService:
 
     async def create(self, premise: str, style_profile_id: str | None = None,
                      on_stage=None) -> Story:
-        """开书：生成简介 → 构建设定(含单书内部扇出) → 首拍卡池+开篇 → 质检 → 落库。
+        """开书：真实信息先行 → 带事实生成简介 → 事实校验门 → 构建设定(单书内部扇出) → 首拍+开篇 → 质检 → 落库。
 
         on_stage: 可选阶段回调（如 `async def on_stage(stage: str)`），供异步任务上报真实进度。
         """
         on_stage = on_stage if callable(on_stage) else (lambda _stage: None)
-        on_stage("生成简介中")
-        synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
+        story = Story(id=str(uuid.uuid4()), premise=premise)
 
-        story = Story(id=str(uuid.uuid4()), premise=premise, synopsis=synopsis.strip())
-        if settings.book_fanout:
-            await self._create_fanout(story, premise, synopsis, style_profile_id, on_stage)
+        # 真实信息先行：知识库召回 + 画像判定 + 网络预取，合成一份「完整真实上下文」。
+        # 它既是简介生成的输入，也是全书蓝图与正文共享的 story.grounding（不再在 fanout 里重算）。
+        on_stage("检索真实背景·判定检索画像中")
+        kb = await self._grounding.resolve(premise)
+        profile = await self._determine_profile(premise, "")
+        prefetched = await prefetch(profile, self._web)
+        for f in kb.facts:
+            if f not in story.grounding:
+                story.grounding.append(f)
+        await self._merge_prefetched(story, prefetched)
+        story.retrieval_profile = profile.merits_dict()
+        full_context = self._full_context_text(story.grounding)
+
+        on_stage("生成简介中")
+        if settings.synopsis_grounded:
+            synopsis = await self._grounded_init(premise, full_context)
         else:
-            await self._create_legacy(story, premise, synopsis, style_profile_id, on_stage)
+            synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
+        story.synopsis = synopsis.strip()
+
+        if settings.synopsis_recheck:
+            story.synopsis_checked = await self._verify_synopsis(story, full_context)
+
+        if settings.book_fanout:
+            await self._create_fanout(story, premise, story.synopsis, style_profile_id, on_stage)
+        else:
+            await self._create_legacy(story, premise, story.synopsis, style_profile_id, on_stage)
 
         on_stage("保存中")
-        self._store.save(story)
+        saved = self._store.save(story)
+        if hasattr(saved, "__await__"):  # 兼容异步/同步存储
+            await saved
         return story
+
+    @staticmethod
+    def _full_context_text(facts: list[str]) -> str:
+        """把事实行合成生成注入用的真实上下文块（无事实则空串，不干扰纯架空书）。"""
+        if not facts:
+            return ""
+        return GROUNDING_LABEL + "\n" + "\n".join(facts)
+
+    async def _grounded_init(self, premise: str, full_context: str) -> str:
+        """带真实事实的简介生成：把知识库+网络合成的完整上下文作为前缀注入 init 调用。"""
+        return await self._gateway.complete(
+            task="init", system=_INIT_SYSTEM,
+            user=f"{_seed_grounding(full_context)}【前提】{premise}\n{_INIT_END}")
+
+    async def _synopsis_vs_facts(self, premise: str, synopsis: str, facts: list[str]) -> dict:
+        """比对「简介」与「真实事实」，检出简介里的事实臆断。失败保守通过，不阻塞。"""
+        facts_txt = "\n".join(f"- {f}" for f in facts) or "（无）"
+        user = (f"【故事前提】{premise}\n【故事简介】{synopsis}\n"
+                f"【真实事实基座】\n{facts_txt}\n请输出 JSON：")
+        try:
+            raw = await self._gateway.complete(
+                task="consistency", system=_SYNOPSIS_CHECK_SYSTEM, user=user, max_tokens=400)
+            data = loads_coerce(raw)
+            if not isinstance(data, dict):
+                return {"passed": True, "issues": []}
+            data.setdefault("passed", True)
+            data.setdefault("issues", [])
+            return data
+        except Exception:
+            return {"passed": True, "issues": []}
+
+    async def _verify_synopsis(self, story: Story, full_context: str) -> dict:
+        """简介出厂事实校验门：无真实事实则跳过；检出 critical 冲突则带反馈重写（幂次内）。"""
+        facts = list(story.grounding)
+        result: dict = {"checked": True, "passed": True, "issues": [], "retries": 0}
+        if not facts:
+            result["note"] = "无真实事实可校验"
+            return result
+        for attempt in range(settings.synopsis_max_retries + 1):
+            check = await self._synopsis_vs_facts(story.premise, story.synopsis, facts)
+            issues = check.get("issues") or []
+            critical = [i for i in issues
+                        if i.get("type") == "FACT" and i.get("severity") == "critical"]
+            result["issues"] = issues
+            result["retries"] = attempt
+            result["passed"] = not critical
+            if not critical or attempt >= settings.synopsis_max_retries:
+                return result
+            feedback = "\n".join(
+                f"- {i.get('reason') or i.get('fragment')}"
+                for i in critical if (i.get('reason') or i.get('fragment')))
+            story.synopsis = (await self._grounded_init(
+                story.premise, full_context + f"\n上一稿简介被审出事实冲突，须纠正：\n{feedback}"
+            )).strip()
 
     async def _create_legacy(self, story: Story, premise: str, synopsis: str,
                              style_profile_id: str | None, on_stage) -> None:
@@ -156,18 +246,13 @@ class StoryService:
             chosen = await self._auto_style(premise, synopsis)
         story.style_profile_id = get_style(chosen).id
 
-        on_stage("检索事实·判定检索画像中")
-        grounding_res = await self._grounding.resolve(premise, synopsis=synopsis)
-        story.grounding = grounding_res.facts
-        profile = await self._determine_profile(premise, synopsis)
-        story.retrieval_profile = profile.merits_dict()
-        prefetched = await prefetch(profile, self._web)
-        await self._merge_prefetched(story, prefetched)
+        # 检索/画像/预取已在 create 完成并落盘到 story.grounding / story.retrieval_profile
+        grounding_txt = self._full_context_text(story.grounding)
 
         on_stage("构建世界观蓝图中")
         bp = await self._blueprint.build(
             premise=premise, synopsis=synopsis,
-            grounding=self._grounding.facts_text(grounding_res),
+            grounding=grounding_txt,
         )
         story.world = bp.get("world") or {}
         story.history = bp.get("history") or []
@@ -190,29 +275,29 @@ class StoryService:
                              style_profile_id: str | None, on_stage) -> None:
         """单书内部扇出：按依赖 DAG 分波并行，波内 asyncio.gather 并发、波间汇合。
 
-        波0 简介(已在 create 完成)；波1 文风∥检索∥骨架；波2 世界观∥历史∥角色∥伏笔；
+        真实信息（检索/画像/网络预取）已在 create 完成并落盘到 story.grounding /
+        story.retrieval_profile；这里：波1 文风∥骨架；波2 世界观∥历史∥角色∥伏笔；
         波3 关系账本(依赖角色名)；波4 卡池∥开篇；波5 质检。骨架锚点保证并行分支一致。
         """
         want_auto = not (style_profile_id or "").strip() or (style_profile_id or "").strip() == "auto"
 
-        # 波1：自动文风(需要才调) ‖ 实事检索 ‖ 世界观骨架
-        on_stage("定文风·检索事实·判定画像·构先天骨中")
+        # 检索/画像/预取已在 create 完成并落盘到 story.grounding / story.retrieval_profile；
+        # 这里直接复用同一份真实上下文，作为骨架与各切片的 grounding。
+        grounding_txt = self._full_context_text(story.grounding)
+
+        # 波1：自动文风(需要才调) ‖ 世界观骨架
+        on_stage("定文风·构先天骨中")
         style_task = asyncio.create_task(self._auto_style(premise, synopsis)) if want_auto else None
-        grounding_task = asyncio.create_task(self._grounding.resolve(premise, synopsis=synopsis))
         skeleton_task = asyncio.create_task(
-            self._blueprint.build_skeleton(premise=premise, synopsis=synopsis))
-        profile_task = asyncio.create_task(self._determine_profile(premise, synopsis))
-        auto_style, grounding_res, skeleton, profile = await asyncio.gather(
-            style_task or _noop(), grounding_task, skeleton_task, profile_task)
+            self._blueprint.build_skeleton(premise=premise, synopsis=synopsis,
+                                           grounding=grounding_txt))
+        auto_style, skeleton = await asyncio.gather(style_task or _noop(), skeleton_task)
         chosen = auto_style if want_auto else ((style_profile_id or "").strip() or DEFAULT_STYLE_ID)
         story.style_profile_id = get_style(chosen).id
-        story.grounding = grounding_res.facts
-        story.retrieval_profile = profile.merits_dict()
-        grounding_txt = self._grounding.facts_text(grounding_res)
 
         # 波2：世界观细节/历史线/角色/伏笔种子 互不依赖，并行生成，统一对齐骨架；
-        # 同时按画像并行预取职业/地域/专业事实（无 key 或画像无专题时立即返回空）。
-        on_stage("并行细化世界观·历史·角色·伏笔·预取事实中")
+        # 网络预取已在 create 完成，这里不再重算。
+        on_stage("并行细化世界观·历史·角色·伏笔中")
         world_task = asyncio.create_task(self._blueprint.build_world(
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
         history_task = asyncio.create_task(self._blueprint.build_history(
@@ -221,15 +306,13 @@ class StoryService:
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
         fs_task = asyncio.create_task(self._blueprint.build_foreshadows(
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
-        prefetch_task = asyncio.create_task(prefetch(profile, self._web))
-        world, history, characters, foreshadow_seeds, prefetched = await asyncio.gather(
-            world_task, history_task, chars_task, fs_task, prefetch_task)
+        world, history, characters, foreshadow_seeds = await asyncio.gather(
+            world_task, history_task, chars_task, fs_task)
         story.world = world or {}
         story.world.setdefault("factions", skeleton.get("factions") or [])
         story.history = history or []
         story.characters = characters or []
         story.foreshadows = init_foreshadows(foreshadow_seeds or [])
-        await self._merge_prefetched(story, prefetched)
 
         # 波3：关系账本依赖角色名，后置等待
         on_stage("补齐关系账本中")
@@ -277,7 +360,8 @@ class StoryService:
         cur = story.open_chapter()
         cur.passage_to = len(story.passages)  # 同步 open 章覆盖范围，供目录展示
         try:
-            verdict = await self._progression.judge(story, direction_spec, prose)
+            verdict = await self._progression.judge(
+                story, direction_spec, prose, facts=build_facts(story))
         except Exception:
             return None
         if verdict.get("end_story"):
@@ -394,6 +478,7 @@ class StoryService:
                 premise=story.premise, synopsis=story.synopsis,
                 characters=story.characters, foreshadows=story.foreshadows,
                 relations=story.relations, passage=passage,
+                facts=build_facts(story),
                 advance_characters=plan.advance_characters,
                 advance_foreshadows=plan.advance_foreshadows,
                 advance_relations=plan.advance_relations,

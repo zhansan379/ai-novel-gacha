@@ -78,7 +78,8 @@ class ProgressionService:
                     "end_story": True, "reason": f"达到 ending_max_chapters（{self._settings.ending_max_chapters} 章）"}
         return None
 
-    async def judge(self, story, direction_spec, prose: str) -> dict:
+    async def judge(self, story, direction_spec, prose: str,
+                    facts: list[str] | None = None) -> dict:
         """返回 {"end_chapter", "chapter_title", "end_story", "reason"}。失败回退不收束。"""
         if not self._settings.chapters_enabled:
             return _DEFAULT_VERDICT
@@ -86,8 +87,12 @@ class ProgressionService:
         hard = self._hard_verdict(story)
         cur = story.open_chapter()
         summary = (getattr(direction_spec, "summary", None) or "") if direction_spec is not None else ""
+        facts_txt = "\n".join(f"- {f}" for f in (facts or []))
+        facts_block = (f"\n【真实事实（须尊重，与剧情/设定冲突时以此为准）】\n{facts_txt}"
+                       if facts_txt else "")
         user = (
             f"{self._narrative_context(story)}\n"
+            f"{facts_block}\n"
             f"【本拍剧情方向】{summary}\n"
             f"【本章最后一拍正文】\n{prose[:1200]}"
         )

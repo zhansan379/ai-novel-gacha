@@ -22,7 +22,7 @@ class _FakeProgression:
     def __init__(self, verdicts=None):
         self._verdicts = list(verdicts or [])
 
-    async def judge(self, story, direction_spec, prose):
+    async def judge(self, story, direction_spec, prose, facts=None):
         if self._verdicts:
             return self._verdicts.pop(0)
         return {"end_chapter": False, "chapter_title": "", "end_story": False, "reason": "noop"}

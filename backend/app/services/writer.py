@@ -13,6 +13,7 @@ _WRITER_SYSTEM = """你是长篇小说的正文作者。
 - 避免“理所当然”“值得一提的是”“转眼间”“简直”等 AI 腔与空泛总结
 - 对话符合人物性格，不充当信息倾倒
 - 结构紧凑、有画面感，每段在一个具体场景里推进
+- 若提示词里的【当前设定状态】含真实事实基座，且与故事简介冲突，一律以真实事实为准
   基于故事设定与已确定的剧情方向，续写一段中文正文（700~1000 字）。只输出正文本身，不要标题、不要解释。
 """
 
@@ -62,20 +63,22 @@ class WriterAgent:
                        tail: str = "", style_profile_id: str | None = None, context: str = "") -> str:
         style = get_style(style_profile_id)
         system = self._system(style)
-        ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
+        ctx = (f"\n【当前设定状态（须尊重；含真实事实且与简介冲突时以事实为准）】\n{context}"
+               if context else "")
         if direction is None:
             return await self._gateway.complete(
                 task="draft", system=system + _OPENING_GROUNDING, temperature=style.temperature,
-                user=(f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："),
+                user=(f"{ctx}\n【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："),
             )
         plan = _direction_plan(direction)
         extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
         tail_seg = f"【上一段】{tail}\n" if tail else ""
         user = (
+            f"{ctx}\n"
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
             f"{tail_seg}"
-            f"【已确定方向】{direction.summary}{extra}{plan}{ctx}\n"
+            f"【已确定方向】{direction.summary}{extra}{plan}\n"
             "请按此方向续写正文："
         )
         return await self._gateway.complete(task="draft", system=system, temperature=style.temperature, user=user)
@@ -86,19 +89,21 @@ class WriterAgent:
         """流式续写：逐个增量产出正文（供 SSE）。"""
         style = get_style(style_profile_id)
         system = self._system(style)
-        ctx = f"\n【当前设定状态（须尊重）】\n{context}" if context else ""
+        ctx = (f"\n【当前设定状态（须尊重；含真实事实且与简介冲突时以事实为准）】\n{context}"
+               if context else "")
         if direction is None:
-            user = f"【故事前提】{premise}\n【故事简介】{synopsis}{ctx}\n请续写开篇正文："
+            user = f"{ctx}\n【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："
             system = system + _OPENING_GROUNDING
         else:
             plan = _direction_plan(direction)
             extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
             tail_seg = f"【上一段】{tail}\n" if tail else ""
             user = (
+                f"{ctx}\n"
                 f"【故事前提】{premise}\n"
                 f"【故事简介】{synopsis}\n"
                 f"{tail_seg}"
-                f"【已确定方向】{direction.summary}{extra}{plan}{ctx}\n"
+                f"【已确定方向】{direction.summary}{extra}{plan}\n"
                 "请按此方向续写正文："
             )
         stream = self._gateway.stream(task="draft", system=system, user=user,

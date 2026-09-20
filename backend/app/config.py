@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     profiling_enabled: bool = True
     profiling_max_topics: int = 4      # 开书最大并行预取专题数（受并发闸门节制）
 
+    # 简介生成的真实信息策略：默认在生成简介前就完成「知识库召回 + 网络预取」，
+    # 把完整真实上下文作为前缀注入简介生成，让这本"全书种子"出生即带事实（而非凭模型记忆虚构）。
+    # synopsis_recheck：对刚生成的简介再做一次事实校验门，检出臆断则回喂反馈重写一次。
+    synopsis_grounded: bool = True
+    synopsis_recheck: bool = True
+    synopsis_max_retries: int = 2      # 简介重写上限（校验门在冲突时回喂重写的最大次数）
+
     # Chroma 内置真实知识库（唯一事实来源）
     chroma_path: str = "data/chroma"
     embedding_mode: str = "n-gram"   # "n-gram"(默认,离线) | "llm"(外部 /embeddings, 语义更强)

@@ -70,7 +70,7 @@ class AdvancePlan:
 
 
 def _build_user(*, premise: str, synopsis: str, characters: list, foreshadows: list,
-                relations: list, passage: str) -> str:
+                relations: list, passage: str, facts: list[str] | None = None) -> str:
     char_lines = "\n".join(
         f"- {c['name']}({'主角' if c.get('role') == 'protagonist' else '配角'}，目标 {c.get('goal') or '未知'})"
         for c in characters if c.get("name")
@@ -85,7 +85,11 @@ def _build_user(*, premise: str, synopsis: str, characters: list, foreshadows: l
         f"（{r.get('note') or ''}）" if r.get("a") and r.get("b") else ""
         for r in relations
     )
+    facts_txt = "\n".join(f"- {f}" for f in (facts or []))
+    facts_block = (f"\n【真实事实（须尊重，与简介/剧情冲突时以此为准）】\n{facts_txt}"
+                   if facts_txt else "")
     return (
+        f"{facts_block}\n"
         f"【故事前提】{premise}\n【故事简介】{synopsis}\n"
         f"【当前角色】\n{char_lines or '（暂无）'}\n"
         f"【伏笔账本】\n{fs_lines or '（暂无）'}\n"
@@ -213,6 +217,7 @@ class NarrativeUpdater:
 
     async def update(self, *, premise: str, synopsis: str, characters: list,
                      foreshadows: list, relations: list, passage: str,
+                     facts: list[str] | None = None,
                      advance_characters: bool = True, advance_foreshadows: bool = True,
                      advance_relations: bool = True) -> tuple[list, list, list]:
         """返回 (新characters, 新foreshadows, 新relations)；解析失败或上游异常则原样返回。
@@ -220,7 +225,8 @@ class NarrativeUpdater:
         未启用的账本不参与解析落账，保持原样。
         """
         user = _build_user(premise=premise, synopsis=synopsis, characters=characters,
-                           foreshadows=foreshadows, relations=relations, passage=passage)
+                           foreshadows=foreshadows, relations=relations, passage=passage,
+                           facts=facts)
         system = _narrative_system(
             advance_characters=advance_characters,
             advance_foreshadows=advance_foreshadows,

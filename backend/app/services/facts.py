@@ -153,6 +153,7 @@ def build_narrative_context(story: Story, *, max_recent: int = 4,
     for f in _clip_foreshadows(story.foreshadows, key, max_foreshadows):
         st = status_txt.get(f.get("status"), f.get("status"))
         lines.append(f"- 伏笔({st})：{f.get('text', '')}")
+    # 真实事实放在角色/伏笔之后、世界约束内即合理；label 已声明"高于简介"，一并注入。
     if story.grounding:
         lines.append(GROUNDING_LABEL)
         lines.extend(f"- {line.lstrip('• ')}" for line in story.grounding)
