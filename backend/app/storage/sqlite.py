@@ -14,14 +14,15 @@ import uuid
 from pathlib import Path
 
 from app.schemas import Card, DirectionSpec
-from app.services.store import Decision, Story, StoryNotFound
+from app.services.store import Chapter, Decision, Story, StoryNotFound
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS stories (
     id TEXT PRIMARY KEY,
     premise TEXT NOT NULL,
     synopsis TEXT NOT NULL DEFAULT '',
-    next_decision_no INTEGER NOT NULL DEFAULT 1
+    next_decision_no INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'active'
 );
 CREATE TABLE IF NOT EXISTS passages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,8 +44,20 @@ CREATE TABLE IF NOT EXISTS decisions (
     rollback_json TEXT,
     PRIMARY KEY (story_id, no)
 );
+CREATE TABLE IF NOT EXISTS chapters (
+    story_id TEXT NOT NULL,
+    no INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    passage_from INTEGER NOT NULL,
+    passage_to INTEGER NOT NULL,
+    is_final INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'closed',
+    PRIMARY KEY (story_id, no)
+);
 CREATE INDEX IF NOT EXISTS idx_passages_story ON passages(story_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_story ON decisions(story_id);
+CREATE INDEX IF NOT EXISTS idx_chapters_story ON chapters(story_id);
 """
 
 
@@ -115,6 +128,19 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
             story.style_profile_id = data["style"]
 
 
+def _chapter_to_row(story_id: str, c: Chapter) -> tuple:
+    return (story_id, c.no, c.title, c.passage_from, c.passage_to,
+            int(c.is_final), c.summary, c.status)
+
+
+def _row_to_chapter(row: sqlite3.Row) -> Chapter:
+    return Chapter(
+        no=row["no"], title=row["title"],
+        passage_from=row["passage_from"], passage_to=row["passage_to"],
+        is_final=bool(row["is_final"]), summary=row["summary"], status=row["status"],
+    )
+
+
 class SQLiteStore:
     def __init__(self, db_path: str) -> None:
         self._path = db_path
@@ -133,6 +159,8 @@ class SQLiteStore:
             cols = [r[1] for r in self._conn.execute("PRAGMA table_info(stories)").fetchall()]
             if "blueprint_json" not in cols:
                 self._conn.execute("ALTER TABLE stories ADD COLUMN blueprint_json TEXT")
+            if "status" not in cols:
+                self._conn.execute("ALTER TABLE stories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
             dcols = [r[1] for r in self._conn.execute("PRAGMA table_info(decisions)").fetchall()]
             if "rollback_json" not in dcols:
                 self._conn.execute("ALTER TABLE decisions ADD COLUMN rollback_json TEXT")
@@ -158,13 +186,13 @@ class SQLiteStore:
     def save(self, story: Story) -> Story:
         with self._lock:
             self._conn.execute(
-                """INSERT INTO stories(id,premise,synopsis,next_decision_no,blueprint_json)
-                   VALUES(?,?,?,?,?)
+                """INSERT INTO stories(id,premise,synopsis,next_decision_no,blueprint_json,status)
+                   VALUES(?,?,?,?,?,?)
                    ON CONFLICT(id) DO UPDATE SET premise=excluded.premise,
                      synopsis=excluded.synopsis, next_decision_no=excluded.next_decision_no,
-                     blueprint_json=excluded.blueprint_json""",
+                     blueprint_json=excluded.blueprint_json, status=excluded.status""",
                 (story.id, story.premise, story.synopsis, story.next_decision_no,
-                 _blueprint_json(story)),
+                 _blueprint_json(story), story.status),
             )
             self._conn.execute("DELETE FROM passages WHERE story_id=?", (story.id,))
             self._conn.executemany(
@@ -174,6 +202,12 @@ class SQLiteStore:
             self._conn.execute("DELETE FROM decisions WHERE story_id=?", (story.id,))
             for d in story.decisions.values():
                 self._insert_decision(story.id, d)
+            self._conn.execute("DELETE FROM chapters WHERE story_id=?", (story.id,))
+            self._conn.executemany(
+                """INSERT INTO chapters(story_id,no,title,passage_from,passage_to,is_final,summary,status)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                [_chapter_to_row(story.id, c) for c in story.chapters],
+            )
             self._conn.commit()
             self._cache[story.id] = story
             return story
@@ -193,13 +227,19 @@ class SQLiteStore:
             decision_rows = self._conn.execute(
                 "SELECT * FROM decisions WHERE story_id=? ORDER BY no", (story_id,),
             ).fetchall()
+            chapter_rows = self._conn.execute(
+                "SELECT * FROM chapters WHERE story_id=? ORDER BY no", (story_id,),
+            ).fetchall()
             story = Story(
                 id=row["id"], premise=row["premise"], synopsis=row["synopsis"],
-                next_decision_no=row["next_decision_no"],
+                next_decision_no=row["next_decision_no"], status=row["status"] or "active",
                 passages=[{"no": p["no"], "decision_no": p["decision_no"], "content": p["content"]}
                           for p in passages],
                 decisions={d.no: d for d in (_row_to_decision(r) for r in decision_rows)},
+                chapters=[_row_to_chapter(r) for r in chapter_rows],
             )
+            if not story.chapters:
+                story.open_chapter()
             _fill_blueprint(story, row["blueprint_json"])
             self._cache[story_id] = story
             return story
@@ -208,7 +248,7 @@ class SQLiteStore:
         """返回全部故事的精简概览（书架用），按创建先后倒序。"""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT rowid AS rid, id, premise, synopsis, next_decision_no "
+                "SELECT rowid AS rid, id, premise, synopsis, next_decision_no, status "
                 "FROM stories ORDER BY rid DESC",
             ).fetchall()
             return [
@@ -217,6 +257,7 @@ class SQLiteStore:
                     "premise": r["premise"],
                     "synopsis": r["synopsis"],
                     "next_decision_no": r["next_decision_no"],
+                    "status": r["status"] or "active",
                 }
                 for r in rows
             ]
@@ -249,6 +290,13 @@ class SQLiteStore:
                 "foreshadows": story.foreshadows, "relations": story.relations,
                 "timeline": story.timeline, "grounding": story.grounding,
                 "retrieval_profile": story.retrieval_profile,
+                "chapters": [
+                    {"no": c.no, "title": c.title, "passage_from": c.passage_from,
+                     "passage_to": c.passage_to, "is_final": c.is_final,
+                     "summary": c.summary, "status": c.status}
+                    for c in story.chapters
+                ],
+                "status": story.status,
             }
 
     def delete(self, story_id: str) -> bool:
@@ -258,6 +306,7 @@ class SQLiteStore:
             cur = self._conn.execute("DELETE FROM stories WHERE id=?", (story_id,))
             self._conn.execute("DELETE FROM passages WHERE story_id=?", (story_id,))
             self._conn.execute("DELETE FROM decisions WHERE story_id=?", (story_id,))
+            self._conn.execute("DELETE FROM chapters WHERE story_id=?", (story_id,))
             self._conn.commit()
             return cur.rowcount > 0
 
@@ -281,7 +330,21 @@ class SQLiteStore:
                 foreshadows=data.get("foreshadows") or [],
                 timeline=data.get("timeline") or [],
                 grounding=data.get("grounding") or [],
+                status=data.get("status") or "active",
             )
+            story.chapters = [
+                Chapter(
+                    no=int(c.get("no") or (i + 1)), title=c.get("title") or "",
+                    passage_from=int(c.get("passage_from") or 0),
+                    passage_to=int(c.get("passage_to") or 0),
+                    is_final=bool(c.get("is_final", False)),
+                    summary=c.get("summary") or "",
+                    status=c.get("status") or "closed",
+                )
+                for i, c in enumerate(data.get("chapters") or [])
+            ]
+            if not story.chapters:
+                story.open_chapter()
             for obj in (data.get("decisions") or []):
                 d = Decision(
                     no=int(obj["no"]),
@@ -304,6 +367,7 @@ class SQLiteStore:
             self._cache.clear()
             self._conn.execute("DELETE FROM passages")
             self._conn.execute("DELETE FROM decisions")
+            self._conn.execute("DELETE FROM chapters")
             self._conn.execute("DELETE FROM stories")
             self._conn.commit()
 

@@ -14,8 +14,9 @@ const rstore = useReadingStore() // 实例化即应用阅读主题/字体/字号
 const settingsOpen = ref(false)
 const readingOpen = ref(false)
 
-// 仅在阅读/世界观页显示"世界观 / 抽卡"（需要故事上下文）
-const isInStory = computed(() => route.name === 'story' || route.name === 'lore')
+// "世界观 / 抽卡"是阅读页专属动作：抽卡浮层只在阅读页挂载，世界观页点击会空转，
+// 世界观按钮也就是当前页重载，因此在世界观页不再展示这两项。
+const isOnStory = computed(() => route.name === 'story')
 const storyId = computed(() => (route.params.id as string) || null)
 
 function goLore() {
@@ -85,7 +86,7 @@ function scrollTop() {
           <span class="rail-label">{{ rstore.isNight ? '夜间' : '日间' }}</span>
         </button>
 
-        <template v-if="isInStory">
+        <template v-if="isOnStory">
           <button class="rail-btn" title="世界观 · 历史线" @click="goLore">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -94,6 +95,22 @@ function scrollTop() {
               <path d="M2 12h20" />
             </svg>
             <span class="rail-label">世界观</span>
+          </button>
+
+          <button
+            class="rail-btn"
+            :class="{ active: store.dirOpen }"
+            :title="store.dirOpen ? '收起目录' : '章节目录'"
+            :aria-expanded="store.dirOpen"
+            @click="store.toggleDir"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              <path d="M9 7h7M9 11h5" />
+            </svg>
+            <span class="rail-label">{{ store.dirOpen ? '收起' : '目录' }}</span>
           </button>
 
           <button

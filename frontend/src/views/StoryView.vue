@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDecisionStore } from '../stores/decision'
 import DecisionPanel from '../components/DecisionPanel.vue'
+import ChapterDirPanel from '../components/ChapterDirPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,13 +17,31 @@ onMounted(async () => {
     await store.load(id)
   }
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  store.closeDir()
+})
 
 const storyId = computed(() => route.params.id as string)
 const wordCount = computed(() => store.passages.reduce((n, p) => n + p.length, 0))
+const curNo = computed(() => store.currentChapter?.no ?? 1)
+const chapterByNo = (no: number) => store.chapters.find((c) => c.no === no) ?? null
+const canPrev = computed(() => chapterByNo(curNo.value - 1) != null)
+const canNext = computed(() => chapterByNo(curNo.value + 1) != null)
+
+function scrollToChapter(no: number) {
+  const ch = chapterByNo(no)
+  if (!ch) return
+  const idx = Math.max(0, ch.passage_from - 1)
+  document.getElementById(`passage-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  store.closeDir()
+}
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && store.drawOpen) store.closeDraw()
+  if (e.key === 'Escape') {
+    if (store.dirOpen) store.closeDir()
+    if (store.drawOpen) store.closeDraw()
+  }
 }
 
 function goLore() {
@@ -43,10 +62,18 @@ function goLore() {
           <span class="crumb-current">{{ store.title || '未命名' }}</span>
         </nav>
         <p class="meta" v-if="!store.loading">
+          <template v-if="store.currentChapter">
+            <span>第 {{ store.currentChapter.no }} 章</span>
+            <template v-if="store.currentChapter.title"><span class="dot">·</span><span>{{ store.currentChapter.title }}</span></template>
+            <span class="dot">·</span>
+          </template>
           <span>{{ store.passages.length }} 段</span>
           <span class="dot">·</span>
           <span>约 {{ wordCount }} 字</span>
-          <template v-if="store.decisionNo"><span class="dot">·</span><span>已到节点 {{ store.decisionNo }}</span></template>
+          <template v-if="store.decisionNo && store.storyStatus !== 'completed'">
+            <span class="dot">·</span><span>已到节点 {{ store.decisionNo }}</span>
+          </template>
+          <button class="dir-link" @click="store.dirOpen = true">目录</button>
         </p>
 
         <!-- 分割线右侧书签：用于收藏/标记当前页 -->
@@ -65,7 +92,7 @@ function goLore() {
 
       <div class="prose">
         <p v-if="store.loading && !store.passages.length" class="hint phase">加载中…</p>
-        <article v-for="(p, i) in store.passages" :key="i" class="passage">
+        <article v-for="(p, i) in store.passages" :id="`passage-${i}`" :key="i" class="passage">
           <template v-for="(line, li) in p.split('\n')" :key="li">
             <p v-if="line.trim()">{{ line.trim() }}</p>
           </template>
@@ -77,13 +104,39 @@ function goLore() {
         <p v-if="store.error" class="error">{{ store.error }}</p>
       </div>
 
-      <!-- 章节底端导航（仿起点：上一章 | 目录 | 下一章） -->
+      <!-- 完结横幅：书已走向结局，停止续写入口 -->
+      <div v-if="store.storyStatus === 'completed'" class="ended-banner">
+        <span class="ended-badge">完</span>
+        <span>本书已完结，共 {{ store.chapters.length }} 章 · {{ store.passages.length }} 段。</span>
+      </div>
+
+      <!-- 章节底端导航：上一章 | 目录 | 世界观 | 抽卡 | 下一章 -->
       <nav class="chapter-nav">
-        <button class="nav-btn" @click="router.push({ name: 'home' })">返回书架</button>
+        <button class="nav-btn" :disabled="!canPrev" @click="scrollToChapter(curNo - 1)">上一章</button>
+        <button class="nav-btn" @click="store.dirOpen = true">目录</button>
         <button class="nav-btn" @click="goLore">世界观 · 历史线</button>
-        <button class="nav-btn" @click="store.toggleDraw">剧情分歧 · 抽卡</button>
+        <button class="nav-btn" :disabled="store.storyStatus === 'completed'" @click="store.toggleDraw">
+          剧情分歧 · 抽卡{{ store.storyStatus === 'completed' ? '（已完结）' : '' }}
+        </button>
+        <button class="nav-btn" :disabled="!canNext" @click="scrollToChapter(curNo + 1)">下一章</button>
       </nav>
     </article>
+
+    <!-- 章节目录遮罩：列出全书章节，支持跳转与改标题 -->
+    <Teleport to="body">
+      <div
+        v-if="store.dirOpen"
+        class="draw-mask"
+        role="dialog"
+        aria-modal="true"
+        aria-label="章节目录"
+        @click.self="store.closeDir"
+      >
+        <div class="draw-panel dir-panel">
+          <ChapterDirPanel @jump="scrollToChapter" @close="store.closeDir" />
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 抽卡遮罩层：卡片网格以整页宽度在页面中部展开（绝对定位 + 背景遮罩） -->
     <Teleport to="body">
@@ -233,6 +286,52 @@ function goLore() {
 .nav-btn:hover {
   background: var(--bg-card);
   color: var(--accent);
+}
+.nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.nav-btn:disabled:hover {
+  background: none;
+  color: var(--muted);
+}
+.dir-link {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.dir-link:hover {
+  text-decoration: underline;
+}
+.ended-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 14px;
+}
+.ended-badge {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg-card);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.dir-panel {
+  min-width: min(380px, 100%);
 }
 
 /* ---------- 抽卡遮罩：卡片网格占整页宽度，绝对定位居中 ---------- */

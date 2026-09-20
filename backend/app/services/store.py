@@ -32,6 +32,24 @@ class Decision:
 
 
 @dataclass
+class Chapter:
+    """一章：覆盖一段连续的正文段（passage_from..passage_to，含端点）。
+
+    章节边界由 LLM 在续写时按剧情拍感判定（见 progression.judge）：“open”表示本章仍在
+    收集正文段，被 LLM 判定收束后置为“closed”并开下一章。最后一章 finished 置 True
+    表示全书结局章（story.status == "completed"）。
+    """
+
+    no: int
+    title: str = ""
+    passage_from: int = 0
+    passage_to: int = 0
+    is_final: bool = False
+    summary: str = ""
+    status: str = "open"  # "open" | "closed"
+
+
+@dataclass
 class Story:
     id: str
     premise: str
@@ -58,6 +76,42 @@ class Story:
     # 剧情时间线（复盘账本）：随每次决策追加，{no, decision_no, mode, card_id, label, title, summary}
     # 与 world.history（世界历史线·固定背景）是两回事，二者互不影响。
     timeline: list = field(default_factory=list)
+    # 章节目录：连续正文段落的分组，见 Chapter。故事完结时 status == "completed"。
+    chapters: list = field(default_factory=list)
+    # 故事生命周期状态："active"（进行中，可续写）| "completed"（已完结，拒绝新决策）。
+    status: str = "active"
+
+    def open_chapter(self) -> Chapter:
+        """返回当前正在写入的 open 章；不存在则创建（首章或上一章收束后开新章）。
+
+        全书无任何章节（老/迁移故事）时回落创建第 1 章，覆盖既有全部段落。
+        """
+        if self.chapters:
+            last = self.chapters[-1]
+            if last.status == "open":
+                return last
+        no = (self.chapters[-1].no + 1) if self.chapters else 1
+        ch = Chapter(no=no,
+                     passage_from=1 if not self.chapters else len(self.passages) + 1,
+                     passage_to=len(self.passages))
+        self.chapters.append(ch)
+        return ch
+
+    def current_chapter(self) -> Chapter:
+        """当前正在写入的章（open 章或最后一次创建的章）。"""
+        return self.open_chapter()
+
+    def close_chapter(self, title: str, *, is_final: bool = False) -> Chapter:
+        """把当前 open 章收束：置 closed、写标题与收束段落号；此后自动开下一章（结局章除外）。"""
+        ch = self.open_chapter()
+        ch.status = "closed"
+        ch.is_final = is_final
+        if title:
+            ch.title = title
+        ch.passage_to = len(self.passages)
+        if not is_final:
+            self.open_chapter()  # 为下一拍预开新章
+        return ch
 
     def milestone(self) -> Decision:
         """返回当前待决策节点；不存在则创建。"""
@@ -116,6 +170,13 @@ class StoryStore:
             "foreshadows": story.foreshadows, "relations": story.relations,
             "timeline": story.timeline, "grounding": story.grounding,
             "retrieval_profile": story.retrieval_profile,
+            "chapters": [
+                {"no": c.no, "title": c.title, "passage_from": c.passage_from,
+                 "passage_to": c.passage_to, "is_final": c.is_final,
+                 "summary": c.summary, "status": c.status}
+                for c in story.chapters
+            ],
+            "status": story.status,
         }
 
     def delete(self, story_id: str) -> bool:
@@ -143,7 +204,22 @@ class StoryStore:
             timeline=data.get("timeline") or [],
             grounding=data.get("grounding") or [],
             retrieval_profile=data.get("retrieval_profile") or {},
+            status=data.get("status") or "active",
         )
+        story.chapters = [
+            Chapter(
+                no=int(c.get("no") or (i + 1)),
+                title=c.get("title") or "",
+                passage_from=int(c.get("passage_from") or 0),
+                passage_to=int(c.get("passage_to") or 0),
+                is_final=bool(c.get("is_final", False)),
+                summary=c.get("summary") or "",
+                status=c.get("status") or "closed",
+            )
+            for i, c in enumerate(data.get("chapters") or [])
+        ]
+        if not story.chapters:
+            story.open_chapter()
         from app.schemas import Card, DirectionSpec
 
         for obj in (data.get("decisions") or []):
@@ -170,6 +246,7 @@ class StoryStore:
                 "premise": s.premise,
                 "synopsis": s.synopsis,
                 "next_decision_no": s.next_decision_no,
+                "status": s.status,
             }
             for s in reversed(list(self._data.values()))
         ]

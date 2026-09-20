@@ -15,6 +15,7 @@ from app.services.direction import DirectionGenerator
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
 from app.services.grounding import GroundingService
 from app.services.narrative import NarrativeUpdater
+from app.services.progression import ProgressionService
 from app.services.retrieval import ProfileDeterminer, RetrievalProfile, prefetch
 from app.services.store import Story, StoryStore
 from app.services.styles import DEFAULT_STYLE_ID, get_style, match_style_id, style_choice_text
@@ -22,6 +23,15 @@ from app.services.writer import WriterAgent
 
 _INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），
 说明核心设定、主角目标与可能的冲突走向。只输出简介本身。"""
+
+
+def chapter_to_info(ch) -> dict:
+    """把 Chapter 序列化为对外 ChapterInfo 形态（路由/快照共用）。"""
+    return {
+        "no": ch.no, "title": ch.title,
+        "passage_from": ch.passage_from, "passage_to": ch.passage_to,
+        "is_final": ch.is_final, "status": ch.status,
+    }
 
 
 async def _noop() -> None:
@@ -55,7 +65,8 @@ class StoryService:
     def __init__(self, store: StoryStore, gateway: LLMGateway,
                  direction: DirectionGenerator, writer: WriterAgent,
                  grounding: GroundingService | None = None,
-                 profiler: ProfileDeterminer | None = None) -> None:
+                 profiler: ProfileDeterminer | None = None,
+                 progression: ProgressionService | None = None) -> None:
         self._store = store
         self._gateway = gateway
         self._direction = direction
@@ -65,6 +76,7 @@ class StoryService:
         self._narrative = NarrativeUpdater(gateway)
         self._grounding = grounding or GroundingService()
         self._profiler = profiler
+        self._progression = progression or ProgressionService(gateway)
         self._web = getattr(self._grounding, "_web", None)
         # 惰性卡池生成的并发锁：按 (story.id, no) 隔离，避免并发请求重复生成同一节点卡池
         self._card_locks: dict[tuple[str, int], asyncio.Lock] = {}
@@ -244,8 +256,55 @@ class StoryService:
         """开篇后续：质检 + 挂到故事首拍。fanout/legacy 共用。"""
         lint, consistency = await self._quality(
             premise, synopsis, opening, facts=build_facts(story))
+        story.open_chapter()  # 开篇最先定位为第 1 章
         story.passages.append({"no": 1, "decision_no": None, "content": opening.strip(),
                                "lint": lint, "consistency": consistency})
+        story.open_chapter().passage_to = 1
+
+    def _writer_chapter_note(self, story: Story) -> str:
+        """给正文生成器注入当前章号，帮助它保持章节内的叙事连贯。"""
+        if not settings.chapters_enabled:
+            return ""
+        return f"\n【当前章节】第 {story.open_chapter().no} 章"
+
+    async def _apply_progression(self, story: Story, direction_spec, prose: str):
+        """一个剧情拍写完后：按 LLM 判定收束本章 / 走向结局。返回本拍刚收束的 Chapter 或 None。
+
+        判定失败/异常一律回退为不收束，绝不阻断正文生成。
+        """
+        if not settings.chapters_enabled:
+            return None
+        cur = story.open_chapter()
+        cur.passage_to = len(story.passages)  # 同步 open 章覆盖范围，供目录展示
+        try:
+            verdict = await self._progression.judge(story, direction_spec, prose)
+        except Exception:
+            return None
+        if verdict.get("end_story"):
+            story.status = "completed"
+            return story.close_chapter((verdict.get("chapter_title") or cur.title).strip(), is_final=True)
+        if verdict.get("end_chapter"):
+            return story.close_chapter((verdict.get("chapter_title") or cur.title).strip())
+        return None
+
+    @staticmethod
+    def _reconcile_chapters_after_removal(story: Story) -> None:
+        """撤销/回滚删掉若干正文段后，让章节目录重新对齐剩余段落。
+
+        从最后往前丢弃超出剩余段数的章；最后一章始终视为 open，并回收结尾段号。
+        """
+        n = len(story.passages)
+        while story.chapters and story.chapters[-1].passage_from > n:
+            story.chapters.pop()
+        if not story.chapters:
+            return
+        last = story.chapters[-1]
+        last.status = "open"
+        last.is_final = False
+        last.passage_to = n
+        # 若最后一章是空壳（起点已在 n 之后），丢弃并回到上一章
+        if last.passage_from > n:
+            story.chapters.pop()
 
     def get(self, story_id: str) -> Story:
         return self._store.get(story_id)
@@ -294,7 +353,9 @@ class StoryService:
         decision.direction_spec = None
         decision.rollback = None
         story.next_decision_no = last_no
-
+        self._reconcile_chapters_after_removal(story)
+        if story.status == "completed":
+            story.status = "active"
         self._store.save(story)
         return {"undo": True, "next_decision_no": last_no,
                 "passages_remaining": len(story.passages)}
@@ -315,6 +376,7 @@ class StoryService:
             if "relations" in decision.rollback:
                 story.relations = decision.rollback["relations"]
         story.next_decision_no = decision_no  # 回到本决策，可重试
+        StoryService._reconcile_chapters_after_removal(story)
 
     async def _advance_state(self, story: Story, direction_spec: DirectionSpec | None,
                              passage: str) -> None:
@@ -418,7 +480,8 @@ class StoryService:
         await self._ground_decision(story, direction_spec)  # 实时补齐本拍引入的新真实实体
         prose = await self._writer.generate(
             premise=story.premise, synopsis=story.synopsis, direction=direction_spec, tail=tail,
-            style_profile_id=story.style_profile_id, context=build_narrative_context(story),
+            style_profile_id=story.style_profile_id,
+            context=build_narrative_context(story) + self._writer_chapter_note(story),
         )
         lint, consistency = await self._quality(story.premise, story.synopsis, prose,
                                             facts=build_facts(story))
@@ -428,6 +491,10 @@ class StoryService:
         self._append_timeline(story, decision, passage["no"], prose.strip())
         try:
             await self._advance_state(story, direction_spec, prose.strip())
+            # 章节收束 / 结局判定（失败回退不收束，不阻断）
+            closed_ch = await self._apply_progression(story, direction_spec, prose.strip())
+            passage["story_end"] = story.status == "completed"
+            passage["chapter"] = chapter_to_info(closed_ch) if closed_ch is not None else None
             # 仅推进到下一分歧节点，卡池留空由 GET /cards 惰性生成（不在正文路径里预生成，
             # 避免"正文输出完仍在抽卡中"。见 ensure_cards）
             story.advance()
@@ -468,7 +535,7 @@ class StoryService:
             async for chunk in self._writer.stream_generate(
                 premise=story.premise, synopsis=story.synopsis, direction=direction_spec,
                 tail=tail, style_profile_id=story.style_profile_id,
-                context=build_narrative_context(story),
+                context=build_narrative_context(story) + self._writer_chapter_note(story),
             ):
                 pieces.append(chunk)
                 yield {"type": "delta", "text": chunk}
@@ -488,6 +555,11 @@ class StoryService:
             self._append_timeline(story, decision, passage["no"], content)
             await self._advance_state(story, direction_spec, content)
 
+            # 章节收束 / 结局判定（失败回退不收束，不阻断）
+            closed_ch = await self._apply_progression(story, direction_spec, content)
+            passage["story_end"] = story.status == "completed"
+            passage["chapter"] = chapter_to_info(closed_ch) if closed_ch is not None else None
+
             # 仅推进到下一分歧节点，卡池留空由前端 loadCards→GET /cards 惰性生成，
             # 让正文一输出完就能提交并关按钮，不再被下一卡池生成阻塞。
             story.advance()
@@ -498,7 +570,9 @@ class StoryService:
             self._rollback_decision(story, decision, decision_no)
             yield {"type": "error", "message": str(exc)}
             return
-        yield {"type": "end", "passage": passage, "next_decision_no": story.next_decision_no}
+        yield {"type": "end", "passage": passage, "next_decision_no": story.next_decision_no,
+               "story_end": story.status == "completed",
+               "chapter": passage.get("chapter")}
 
     @staticmethod
     def spec_from_instruction(text: str) -> DirectionSpec:
@@ -516,7 +590,10 @@ class StoryService:
 
         幂等：已有卡片直接返回；用 per-(story,no) 锁防并发重复生成。
         这是卡池获取的唯一入口：不在正文流里预生成下一卡池，避免"正文输出完仍在抽卡中"。
+        故事已完结时 No 不生成卡池，直接返回空。
         """
+        if story.status == "completed":
+            return []
         async with self._card_lock(story.id, no):
             decision = self._current_decision(story, no)
             if decision.cards:
@@ -533,3 +610,14 @@ class StoryService:
             if hasattr(saved, "__await__"):  # 兼容异步/同步存储
                 await saved
             return decision.cards
+
+    async def rename_chapter(self, story: Story, chapter_no: int, title: str) -> dict:
+        """修改某章标题（读者可改）。返回更新后的本章对外表示。"""
+        ch = next((c for c in story.chapters if c.no == chapter_no), None)
+        if ch is None:
+            raise KeyError(f"章节不存在: {chapter_no}")
+        ch.title = (title or "").strip()[:60]
+        saved = self._store.save(story)
+        if hasattr(saved, "__await__"):  # 兼容异步/同步存储
+            await saved
+        return chapter_to_info(ch)

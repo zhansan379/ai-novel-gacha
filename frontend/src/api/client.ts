@@ -3,8 +3,9 @@
  * 类型与《接口契约》一致，远期由 OpenAPI 生成替换。
  */
 import type {
-  ApplyResponse, Blueprint, CardsResponse, CreateTaskAccepted, CreateTaskStatus, DrawResponse,
-  ModelsConfig, StoryList, StorySnapshot, StorySummary, StyleProfile, TimelineResponse,
+  ApplyResponse, Blueprint, CardsResponse, Chapter, ChaptersResponse, CreateTaskAccepted,
+  CreateTaskStatus, DrawResponse, ModelsConfig, StoryList, StorySnapshot, StorySummary, StyleProfile,
+  TimelineResponse,
 } from '../types'
 
 const BASE = '/v1'
@@ -132,6 +133,14 @@ export const api = {
   getBlueprint: (storyId: string) => req<Blueprint>(`/stories/${storyId}/blueprint`),
 
   getTimeline: (storyId: string) => req<TimelineResponse>(`/stories/${storyId}/timeline`),
+
+  getChapters: (storyId: string) => req<ChaptersResponse>(`/stories/${storyId}/chapters`),
+
+  renameChapter: (storyId: string, chapterNo: number, title: string) =>
+    req<Chapter>(`/stories/${storyId}/chapters/${chapterNo}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
 
   undoLast: (storyId: string) =>
     req<{ undo: boolean; next_decision_no: number }>(`/stories/${storyId}/undo`, {

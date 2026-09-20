@@ -38,6 +38,21 @@ export interface DirectionSpec {
 }
 
 // ---- 后端 API 响应（与《接口契约》一致；远期 OpenAPI 生成替换）----
+export type StoryStatus = 'active' | 'completed'
+
+export interface Chapter {
+  no: number
+  title: string
+  passage_from: number
+  passage_to: number
+  is_final: boolean
+  status: 'open' | 'closed'
+}
+export interface ChaptersResponse {
+  story_id: string
+  chapters: Chapter[]
+  status: StoryStatus
+}
 export interface StoryCreated {
   story_id: string
   synopsis: string
@@ -67,6 +82,7 @@ export interface StoryListItem {
   premise: string
   synopsis: string
   next_decision_no: number
+  status?: StoryStatus
 }
 export interface StoryList { stories: StoryListItem[] }
 
@@ -117,7 +133,9 @@ export interface DrawResponse {
   passage: string
   lint: LintIssue[]
   consistency: ConsistencyResult
-  next_decision_no: number
+  next_decision_no: number | null
+  story_end?: boolean
+  chapter?: Chapter | null
 }
 
 export interface ApplyResponse {
@@ -127,7 +145,9 @@ export interface ApplyResponse {
   passage: string
   lint: LintIssue[]
   consistency: ConsistencyResult
-  next_decision_no: number
+  next_decision_no: number | null
+  story_end?: boolean
+  chapter?: Chapter | null
 }
 
 export interface LintIssue {
@@ -157,6 +177,8 @@ export interface StorySummary {
   passages: string[]
   next_decision_no: number
   timeline?: TimelineEvent[]
+  chapters?: Chapter[]
+  status?: StoryStatus
 }
 
 export interface TimelineEvent {

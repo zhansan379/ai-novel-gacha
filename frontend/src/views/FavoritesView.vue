@@ -77,7 +77,9 @@ onMounted(load)
 
           <!-- 中：作品信息 -->
           <div class="info">
-            <h4 class="info-title">{{ s.premise || '未命名' }}</h4>
+            <h4 class="info-title">{{ s.premise || '未命名' }}
+              <span v-if="s.status === 'completed'" class="end-badge">完结</span>
+            </h4>
             <p class="info-synopsis">{{ s.synopsis || '（暂无简介）' }}</p>
           </div>
 
@@ -246,6 +248,17 @@ onMounted(load)
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.end-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bg-card);
+  background: var(--accent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  vertical-align: 2px;
 }
 .info-synopsis {
   margin: 0;

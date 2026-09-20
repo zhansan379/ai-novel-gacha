@@ -11,8 +11,9 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.gacha import GachaEngine
 from app.llm.errors import LLMError
-from app.schemas import Card, CardLabel, CardPool, DirectionKind, DirectionSpec
+from app.schemas import Card, CardLabel, CardPool, ChapterInfo, DirectionKind, DirectionSpec
 from app.services import registry
+from app.services.story_service import chapter_to_info
 from app.services.store import DecisionLocked, Story, StoryNotFound
 
 router = APIRouter(prefix="/v1")
@@ -100,7 +101,11 @@ class DrawResponse(BaseModel):
     passage: str
     lint: list[dict] = []
     consistency: dict = {"passed": True, "issues": []}
-    next_decision_no: int
+    next_decision_no: int | None = None
+    # 完结/分章信息：story_end 表示该书已完结（不再有下一轮卡池）；
+    # chapter 为非空时表示本拍刚收束的章（含 LLM 生成的标题）。
+    story_end: bool = False
+    chapter: ChapterInfo | None = None
 
 
 class ApplyResponse(BaseModel):
@@ -110,7 +115,19 @@ class ApplyResponse(BaseModel):
     passage: str
     lint: list[dict] = []
     consistency: dict = {"passed": True, "issues": []}
-    next_decision_no: int
+    next_decision_no: int | None = None
+    story_end: bool = False
+    chapter: ChapterInfo | None = None
+
+
+class ChaptersResponse(BaseModel):
+    story_id: str
+    chapters: list[ChapterInfo]
+    status: Literal["active", "completed"]
+
+
+class ChapterRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=60)
 
 
 class StorySummary(BaseModel):
@@ -121,6 +138,8 @@ class StorySummary(BaseModel):
     next_decision_no: int
     style_profile_id: str = "restrained"
     timeline: list[dict] = []
+    chapters: list[ChapterInfo] = []
+    status: Literal["active", "completed"] = "active"
 
 
 class StoryListItem(BaseModel):
@@ -128,6 +147,7 @@ class StoryListItem(BaseModel):
     premise: str
     synopsis: str
     next_decision_no: int
+    status: Literal["active", "completed"] = "active"
 
 
 class StoryList(BaseModel):
@@ -165,6 +185,13 @@ def _decision_of(story: Story, no: int) -> object:
     if d is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": f"决策节点不存在: {no}"})
     return d
+
+
+def _ensure_active(story: Story) -> None:
+    """故事已完结时拒绝一切新决策（409）。"""
+    if story.status == "completed":
+        raise HTTPException(status_code=409, detail={"code": "STORY_ENDED",
+                                                     "message": "故事已完结，无法继续续写"})
 
 
 def _sse(name: str, data: dict) -> str:
@@ -304,7 +331,28 @@ async def get_story(sid: str = Path(...)):
                         passages=[p["content"] for p in story.passages],
                         next_decision_no=story.next_decision_no,
                         style_profile_id=story.style_profile_id,
-                        timeline=story.timeline)
+                        timeline=story.timeline,
+                        chapters=[ChapterInfo(**chapter_to_info(c)) for c in story.chapters],
+                        status=story.status)
+
+
+@router.get("/stories/{sid}/chapters", response_model=ChaptersResponse, tags=["chapter"])
+async def list_chapters(sid: str = Path(...)):
+    """章节目录：连同故事状态一起返回（前端目录/完结态用它）。"""
+    story = decision_path(sid)
+    return ChaptersResponse(story_id=story.id,
+                            chapters=[ChapterInfo(**chapter_to_info(c)) for c in story.chapters],
+                            status=story.status)
+
+
+@router.patch("/stories/{sid}/chapters/{no}", response_model=ChapterInfo, tags=["chapter"])
+async def rename_chapter(sid: str, no: int, body: ChapterRenameRequest):
+    """修改章节标题（读者可改）。"""
+    story = decision_path(sid)
+    try:
+        return ChapterInfo(**(await registry.story_service.rename_chapter(story, no, body.title)))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": str(exc)}) from exc
 
 
 @router.post("/stories/{sid}/undo", tags=["story"])
@@ -367,10 +415,13 @@ async def get_cards(sid: str, no: int = Path(..., ge=1)):
 @router.post("/stories/{sid}/decisions/{no}/gacha", response_model=DrawResponse, tags=["decision"])
 async def blind_draw(sid: str, no: int = Path(..., ge=1)):
     story = decision_path(sid)
+    _ensure_active(story)
     d = _decision_of(story, no)
     if d.applied:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
     d.cards = await registry.story_service.ensure_cards(story, no)
+    if not d.cards:
+        raise HTTPException(status_code=409, detail={"code": "STORY_ENDED", "message": "故事已完结，无法生成卡池"})
     card = _gacha.draw(CardPool(decision_no=no, pool_version=d.pool_version, cards=d.cards))
     direction = _card_spec(card)
     try:
@@ -379,16 +430,19 @@ async def blind_draw(sid: str, no: int = Path(..., ge=1)):
         )
     except DecisionLocked:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+    chap = ChapterInfo(**passage["chapter"]) if passage.get("chapter") else None
     return DrawResponse(decision_no=no, mode="gacha_draw", card=card,
                         direction_spec=direction,
                         passage=passage["content"], lint=passage.get("lint", []),
                         consistency=passage.get("consistency", {"passed": True, "issues": []}),
-                        next_decision_no=story.next_decision_no)
+                        next_decision_no=story.next_decision_no,
+                        story_end=bool(passage.get("story_end")), chapter=chap)
 
 
 @router.post("/stories/{sid}/decisions/{no}/apply", response_model=ApplyResponse, tags=["decision"])
 async def apply_decision(sid: str, no: int, body: AppliesDecision):
     story = decision_path(sid)
+    _ensure_active(story)
     d = _decision_of(story, no)
     if d.applied:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
@@ -406,10 +460,12 @@ async def apply_decision(sid: str, no: int, body: AppliesDecision):
         )
     except DecisionLocked:
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+    chap = ChapterInfo(**passage["chapter"]) if passage.get("chapter") else None
     return ApplyResponse(decision_no=no, mode=mode, direction_spec=direction,
                          passage=passage["content"], lint=passage.get("lint", []),
                          consistency=passage.get("consistency", {"passed": True, "issues": []}),
-                         next_decision_no=story.next_decision_no)
+                         next_decision_no=story.next_decision_no,
+                         story_end=bool(passage.get("story_end")), chapter=chap)
 
 
 @router.post("/stories/{sid}/passages/{np}/lint", response_model=dict, tags=["quality"])
@@ -429,9 +485,11 @@ async def relint_passage(sid: str, np: int):
 async def stream_decision(sid: str, no: int, body: StreamDecision):
     """SSE 流式：按 盲抽/明选/自由输入 之一锁定决策并流式生成正文。
 
-    事件流：passage_start → delta* → passage_end{passage, lint, consistency, next_decision_no}
+    事件流：passage_start → delta* → passage_end{passage, lint, consistency,
+    next_decision_no, story_end, chapter}。story_end=true 表示本书已完结（不再有下一轮卡池）。
     """
     story = decision_path(sid)
+    _ensure_active(story)
 
     card: Card | None = None
     # 解析三选一动作 → (direction_spec, mode, card_id)
@@ -472,11 +530,14 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
                 yield _sse("passage_error", {"message": ev.get("message", "生成失败，该步已回滚，可重试")})
             else:  # end
                 p = ev["passage"]
+                chap = ChapterInfo(**p["chapter"]) if p.get("chapter") else None
                 yield _sse("passage_end", {
                     "decision_no": no, "passage": p["content"],
                     "lint": p.get("lint", []),
                     "consistency": p.get("consistency", {"passed": True, "issues": []}),
                     "next_decision_no": ev["next_decision_no"],
+                    "story_end": bool(ev.get("story_end")),
+                    "chapter": chap.model_dump() if chap else None,
                 })
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

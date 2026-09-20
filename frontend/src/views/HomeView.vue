@@ -197,7 +197,9 @@ async function createStory() {
 
             <!-- 中：作品信息 -->
             <div class="info">
-              <h4 class="info-title">{{ s.premise || '未命名' }}</h4>
+              <h4 class="info-title">{{ s.premise || '未命名' }}
+                <span v-if="s.status === 'completed'" class="end-badge">完结</span>
+              </h4>
             </div>
 
             <!-- 右：操作按钮（从右至左：去写作 · 导出下拉 · 删除） -->
@@ -485,6 +487,17 @@ async function createStory() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.end-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bg-card);
+  background: var(--accent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  vertical-align: 2px;
 }
 /* 右：操作按钮（从右至左：去写作 · 导出） */
 .actions {

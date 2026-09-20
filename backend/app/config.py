@@ -49,5 +49,11 @@ class Settings(BaseSettings):
     # 关闭则退回旧的单调用串联（约省 4 路 LLM 调用，慢但省 token）。
     book_fanout: bool = True
 
+    # 章节 + 完结判定：生成正文后由轻量 LLM 判定"是否收束本章 / 是否走向结局"。
+    chapters_enabled: bool = True                    # 关闭则退回“无限续写、不分章”的旧行为
+    chapter_min_passages: int = 2                    # 提示 LLM 一章最少正文段数的软下界
+    chapter_max_passages: int = 8                    # 提示 LLM 一章最多正文段数的软上界
+    ending_max_chapters: int = 0                     # 硬性完结保险（0=关闭，纯 LLM 收敛判定）
+
 
 settings = Settings()

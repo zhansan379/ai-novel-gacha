@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import json
+
 from app.llm import LLMGateway
 from app.llm.errors import ModelError
 from app.services.jsonparse import loads_coerce

@@ -1,7 +1,7 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, consumeSSE, waitForCreateTask } from '../api/client'
-import type { Card, ConsistencyResult, DecisionMode, LintIssue } from '../types'
+import type { Card, Chapter, ConsistencyResult, DecisionMode, LintIssue, StoryStatus } from '../types'
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -13,12 +13,36 @@ interface ActionResult {
   passage: string
 }
 
+function _defaultChapter(chapters: Chapter[] | undefined): Chapter[] {
+  if (chapters && chapters.length) return chapters
+  // 老书无章节目录：按现有正文兜底为单章（open，cover 全部段落）
+  return [{ no: 1, title: '', passage_from: 1, passage_to: 0, is_final: false, status: 'open' }]
+}
+
 export const useDecisionStore = defineStore('decision', () => {
   // 故事状态
   const storyId = ref<string | null>(null)
   const title = ref('')
   const synopsis = ref('')
   const passages = ref<string[]>([])
+  // 章节目录 + 完结状态（与后端 Story.chapters / Story.status 同步）
+  const chapters = ref<Chapter[]>([])
+  const storyStatus = ref<StoryStatus>('active')
+
+  /** 当前正在读/写的章；无列表时兜底为第 1 章。 */
+  const currentChapter = computed<Chapter | null>(() => {
+    if (!chapters.value.length) return null
+    const open = [...chapters.value].reverse().find((c) => c.status === 'open')
+    return open ?? chapters.value[chapters.value.length - 1]
+  })
+
+  /** 把服务端返回的最新一章并入本地目录（按 no 替换或追加）。 */
+  function _mergeChapter(ch: Chapter | null | undefined) {
+    if (!ch) return
+    const i = chapters.value.findIndex((c) => c.no === ch.no)
+    if (i >= 0) chapters.value[i] = ch
+    else chapters.value.push(ch)
+  }
 
   // 当前决策
   const decisionNo = ref<number | null>(null)
@@ -34,6 +58,15 @@ export const useDecisionStore = defineStore('decision', () => {
   }
   function closeDraw() {
     drawOpen.value = false
+  }
+
+  // 章节目录浮层开关：跨页面/组件共享（侧栏"目录"按钮与阅读页内目录入口共用）
+  const dirOpen = ref(false)
+  function toggleDir() {
+    dirOpen.value = !dirOpen.value
+  }
+  function closeDir() {
+    dirOpen.value = false
   }
 
   // 收藏/标记当前页（按 story_id 持久化到 localStorage）
@@ -124,6 +157,8 @@ const cardsLoading = ref(false)
     title.value = title.value || s.story_id
     synopsis.value = s.synopsis
     passages.value = [s.opening]
+    chapters.value = [{ no: 1, title: '', passage_from: 1, passage_to: 1, is_final: false, status: 'open' }]
+    storyStatus.value = 'active'
     decisionNo.value = s.decision_no
     cards.value = s.cards
     syncBookmark()
@@ -171,8 +206,17 @@ const cardsLoading = ref(false)
       title.value = s.premise
       synopsis.value = s.synopsis
       passages.value = s.passages
+      chapters.value = _defaultChapter(s.chapters)
+      storyStatus.value = s.status ?? 'active'
       syncBookmark()
-      await loadCards(existingId, s.next_decision_no)
+      // 已完结书不再拉取下一卡池（完结后无卡池，拉到空会误导 UI）
+      if (storyStatus.value !== 'completed') {
+        await loadCards(existingId, s.next_decision_no)
+      } else {
+        decisionNo.value = null
+        cards.value = []
+        _resetDecisionLocalState()
+      }
     } catch (e) {
       error.value = errMsg(e)
     } finally {
@@ -200,12 +244,14 @@ const cardsLoading = ref(false)
   /** 盲抽：服务端随机揭晓并流式生成正文。 */
   async function draw() {
     if (!storyId.value || decisionNo.value == null) return
+    if (storyStatus.value === 'completed') return
     await _stream({ draw: true })
   }
 
   /** 采用当前选择（已点卡 / 已输入指令），流式生成正文。 */
   async function apply() {
     if (!storyId.value || decisionNo.value == null) return
+    if (storyStatus.value === 'completed') return
     const text = customInstruction.value.trim()
     if (text) {
       await _stream({ custom_instruction: text })   // 有自由输入 → 按输入推进
@@ -244,7 +290,8 @@ const cardsLoading = ref(false)
           streamingText.value += (ev.data as { text: string }).text
         } else if (ev.event === 'passage_end') {
           const d = ev.data as {
-            passage: string; lint: LintIssue[]; consistency: ConsistencyResult; next_decision_no: number
+            passage: string; lint: LintIssue[]; consistency: ConsistencyResult; next_decision_no: number;
+            story_end?: boolean; chapter?: Chapter | null
           }
           passages.value = [...passages.value, d.passage]
           lastAction.value = {
@@ -255,6 +302,11 @@ const cardsLoading = ref(false)
           lastLint.value = d.lint ?? []
           lastConsistency.value = d.consistency ?? null
           nextDecisionNo.value = d.next_decision_no
+          if (d.story_end) {
+            storyStatus.value = 'completed'
+            nextDecisionNo.value = null   // 完结后不再进入下一分歧
+          }
+          _mergeChapter(d.chapter)
           streamingText.value = ''
           // 正文已落地，立刻解锁抽卡/推进（下一卡池由 cardsLoading 单独承接）
           loading.value = false
@@ -267,7 +319,7 @@ const cardsLoading = ref(false)
       // 自动进入下一分歧：直接加载新卡池（GET /cards 惰性生成），
       // 期间以独立的 cardsLoading 提示，不占用正文主 loading
       const nxt = nextDecisionNo.value
-      if (nxt != null && storyId.value) {
+      if (nxt != null && storyId.value && storyStatus.value !== 'completed') {
         const keep = {
           lastAction: lastAction.value, lastLint: lastLint.value,
           lastConsistency: lastConsistency.value,
@@ -294,6 +346,7 @@ const cardsLoading = ref(false)
   /** 进入下一个分歧点，加载新的卡池。 */
   async function next() {
     if (!storyId.value || nextDecisionNo.value == null) return
+    if (storyStatus.value === 'completed') return
     loading.value = true
     cardsLoading.value = true
     try {
@@ -303,6 +356,32 @@ const cardsLoading = ref(false)
     } finally {
       loading.value = false
       cardsLoading.value = false
+    }
+  }
+
+  /** 重新拉取最新章节目录（阅读页目录面板用）。 */
+  async function syncChapters() {
+    if (!storyId.value) return
+    try {
+      const r = await api.getChapters(storyId.value)
+      chapters.value = r.chapters
+      storyStatus.value = r.status
+    } catch (e) {
+      // 目录拉取失败不阻断阅读（保持上次已知目录）
+      void e
+    }
+  }
+
+  /** 重命名章节标题（读者可改）。 */
+  async function renameChapter(no: number, title: string) {
+    if (!storyId.value) return
+    const t = title.trim()
+    if (!t) return
+    try {
+      const updated = await api.renameChapter(storyId.value, no, t)
+      _mergeChapter(updated)
+    } catch (e) {
+      error.value = errMsg(e)
     }
   }
 
@@ -336,6 +415,7 @@ const cardsLoading = ref(false)
 
   function reset() {
     storyId.value = null; title.value = ''; synopsis.value = ''; passages.value = []
+    chapters.value = []; storyStatus.value = 'active'
     bookmarked.value = false
     decisionNo.value = null; cards.value = []; revealed.value = null
     customInstruction.value = ''; loading.value = false; error.value = null
@@ -350,8 +430,11 @@ const cardsLoading = ref(false)
     storyId, title, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
     loading, cardsLoading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
     creating, creatingTaskId, createStage,
+    chapters, storyStatus, currentChapter,
     drawOpen, toggleDraw, closeDraw,
+    dirOpen, toggleDir, closeDir,
     bookmarked, toggleBookmark, getBookmarkedIds, setBookmarked,
     create, resumePendingCreate, load, draw, apply, applyCard, undo, next, pickLocal, reset,
+    syncChapters, renameChapter,
   }
 })

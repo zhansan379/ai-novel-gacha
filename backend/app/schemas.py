@@ -105,3 +105,13 @@ class Decision(BaseModel):
     card_id: str | None = None
     direction_spec: DirectionSpec
     created_at: str
+
+
+class ChapterInfo(BaseModel):
+    """一章的对外表示：正文段序号范围 + 标题 + 是否结局章。"""
+    no: int = Field(ge=1)
+    title: str = ""
+    passage_from: int = Field(default=0, ge=0)
+    passage_to: int = Field(default=0, ge=0)
+    is_final: bool = False
+    status: Literal["open", "closed"] = "closed"
