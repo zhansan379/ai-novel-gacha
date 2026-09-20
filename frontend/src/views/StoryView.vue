@@ -66,7 +66,9 @@ function goLore() {
       <div class="prose">
         <p v-if="store.loading && !store.passages.length" class="hint phase">加载中…</p>
         <article v-for="(p, i) in store.passages" :key="i" class="passage">
-          <p>{{ p }}</p>
+          <template v-for="(line, li) in p.split('\n')" :key="li">
+            <p v-if="line.trim()">{{ line.trim() }}</p>
+          </template>
         </article>
         <div v-if="store.streamingText" class="streaming">
           <span class="caret">{{ store.streamingText }}</span>
@@ -172,8 +174,8 @@ function goLore() {
 }
 .passage p {
   margin: 0 0 14px;
+  text-indent: 2em;
   line-height: 1.9;
-  white-space: pre-wrap;
 }
 .hint {
   color: var(--muted);
@@ -182,6 +184,7 @@ function goLore() {
   text-align: center;
 }
 .streaming {
+  text-indent: 2em;
   line-height: 1.9;
   color: var(--muted);
   white-space: pre-wrap;
