@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDecisionStore } from '../stores/decision'
 import DecisionPanel from '../components/DecisionPanel.vue'
@@ -9,19 +9,22 @@ const router = useRouter()
 const store = useDecisionStore()
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   const id = route.params.id as string | undefined
   // 本会话刚创建（Home 已 set storyId）→ 直接使用；否则按 id 载入已有故事
   if (id && store.storyId !== id) {
     await store.load(id)
   }
 })
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 const storyId = computed(() => route.params.id as string)
 const wordCount = computed(() => store.passages.reduce((n, p) => n + p.length, 0))
 
-function scrollToDraw() {
-  document.getElementById('draw')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && store.drawOpen) store.closeDraw()
 }
+
 function goLore() {
   router.push({ name: 'lore', params: { id: storyId.value } })
 }
@@ -29,18 +32,6 @@ function goLore() {
 
 <template>
   <section class="story">
-    <!-- 右侧固定侧栏：世界观/历史线等跳转 -->
-    <nav class="side-rail" aria-label="侧边栏">
-      <button class="rail-btn" title="世界观 · 历史线" @click="goLore">
-        <span class="rail-ico" aria-hidden="true">🌍</span>
-        <span class="rail-label">世界观</span>
-      </button>
-      <button class="rail-btn" title="抽命运卡" @click="scrollToDraw">
-        <span class="rail-ico" aria-hidden="true">🃏</span>
-        <span class="rail-label">抽卡</span>
-      </button>
-    </nav>
-
     <article class="reader">
       <header class="chapter-head">
         <p class="book-crumb">命运抽卡 · AI 互动小说</p>
@@ -71,16 +62,26 @@ function goLore() {
       <nav class="chapter-nav">
         <button class="nav-btn" @click="router.push({ name: 'home' })">返回书架</button>
         <button class="nav-btn" @click="goLore">世界观 · 历史线</button>
-        <button class="nav-btn" @click="scrollToDraw">剧情分歧 · 抽卡</button>
+        <button class="nav-btn" @click="store.toggleDraw">剧情分歧 · 抽卡</button>
       </nav>
     </article>
 
-    <!-- 抽卡置于最下方 -->
-    <section id="draw" class="draw">
-      <div class="draw-inner">
-        <DecisionPanel />
+    <!-- 抽卡遮罩层：卡片网格以整页宽度在页面中部展开（绝对定位 + 背景遮罩） -->
+    <Teleport to="body">
+      <div
+        v-if="store.drawOpen"
+        class="draw-mask"
+        role="dialog"
+        aria-modal="true"
+        aria-label="剧情分歧 · 命运卡"
+        @click.self="store.closeDraw"
+      >
+        <button class="draw-close" title="关闭 (Esc)" @click="store.closeDraw" aria-label="关闭">✕</button>
+        <div class="draw-panel">
+          <DecisionPanel />
+        </div>
       </div>
-    </section>
+    </Teleport>
   </section>
 </template>
 
@@ -90,54 +91,11 @@ function goLore() {
   margin: 0 auto;
 }
 
-/* ---------- 右侧固定侧栏 ---------- */
-.side-rail {
-  position: fixed;
-  right: 18px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  z-index: 30;
-}
-.rail-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 62px;
-  padding: 12px 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-card);
-  backdrop-filter: saturate(1.2) blur(6px);
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
-  transition: border-color 0.15s, transform 0.15s, box-shadow 0.2s;
-}
-.rail-btn:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.14);
-}
-.rail-ico {
-  font-size: 19px;
-  line-height: 1;
-}
-.rail-label {
-  font-size: 12px;
-  color: var(--muted);
-}
-.rail-btn:hover .rail-label {
-  color: var(--accent);
-}
-
 /* ---------- 阅读主体（仿起点章读，纸感） ---------- */
 .reader {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 0;
   padding: 34px 40px 26px;
   box-shadow: 0 8px 30px rgba(80, 60, 20, 0.08);
 }
@@ -177,7 +135,7 @@ function goLore() {
   color: #6b5f4a;
   font-size: 14px;
   line-height: 1.7;
-  border-radius: 0 8px 8px 0;
+  border-radius: 0;
 }
 .prose {
   color: #443a2c;
@@ -222,7 +180,7 @@ function goLore() {
   align-items: stretch;
   margin-top: 26px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   background: #f6f0e3;
 }
@@ -246,32 +204,56 @@ function goLore() {
   color: var(--accent);
 }
 
-/* ---------- 抽卡（最下方） ---------- */
-.draw {
-  margin-top: 26px;
-  padding-top: 26px;
-  border-top: 1px solid var(--border);
+/* ---------- 抽卡遮罩：卡片网格占整页宽度，绝对定位居中 ---------- */
+.draw-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(43, 36, 24, 0.45);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 18px;
+  overflow: auto;
+  animation: mask-in 0.18s ease both;
 }
-.draw-inner {
-  margin: 0 auto;
+@keyframes mask-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.draw-panel {
+  width: min(1200px, 100%);
+  animation: deck-in 0.22s ease both;
+}
+@keyframes deck-in {
+  from { transform: translateY(10px) scale(0.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.draw-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 61;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--muted);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(40, 33, 20, 0.25);
+  line-height: 1;
+  font-size: 15px;
+}
+.draw-close:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 @media (max-width: 720px) {
   .reader {
     padding: 24px 20px 18px;
-  }
-  .side-rail {
-    right: 8px;
-    top: auto;
-    bottom: 14px;
-    transform: none;
-    flex-direction: row;
-  }
-  .rail-btn {
-    flex-direction: row;
-    width: auto;
-    gap: 6px;
-    padding: 9px 14px;
   }
 }
 </style>

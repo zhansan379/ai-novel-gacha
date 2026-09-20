@@ -138,7 +138,7 @@ async function createStory() {
   width: min(520px, 66vw);
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 0;
   font-size: 15px;
   background: var(--bg-card);
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -151,7 +151,7 @@ async function createStory() {
 .btn {
   padding: 12px 26px;
   border: none;
-  border-radius: 10px;
+  border-radius: 0;
   cursor: pointer;
 }
 .btn.primary {
@@ -184,7 +184,7 @@ async function createStory() {
 .style-select {
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--bg-card);
 }
 .style-desc {

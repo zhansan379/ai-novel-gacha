@@ -111,7 +111,7 @@ onMounted(async () => {
 .blueprint {
   margin-top: 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 6px 14px 10px;
   background: var(--bg-card);
 }

@@ -162,7 +162,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
 .panel {
   width: min(420px, 92vw);
   background: #fff;
-  border-radius: 14px;
+  border-radius: 0;
   padding: 20px 22px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
   animation: pop .18s ease;
@@ -178,7 +178,7 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
   margin-bottom: 14px;
 }
 .head h3 { margin: 0; font-size: 17px; }
-.mode { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.mode { font-size: 12px; padding: 2px 8px; border-radius: 0; }
 .mode.on { background: #d1fae5; color: #047857; }
 .mode.off { background: #f3f4f6; color: #6b7280; }
 .close { margin-left: auto; border: none; background: none; font-size: 22px; cursor: pointer; color: #9ca3af; }
@@ -186,15 +186,15 @@ function msg(e: unknown) { return e instanceof Error ? e.message : String(e) }
 .field span { display: block; font-size: 13px; color: #6b7280; margin-bottom: 4px; }
 .field input, .field select {
   width: 100%; box-sizing: border-box; padding: 8px 10px;
-  border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit;
+  border: 1px solid #d1d5db; border-radius: 0; font-family: inherit;
 }
 .sub { display: block; font-size: 11px; color: #9ca3af; margin-top: 4px; line-height: 1.4; }
 .actions { display: flex; gap: 10px; margin-top: 14px; }
-.btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; }
+.btn { padding: 8px 16px; border: none; border-radius: 0; cursor: pointer; }
 .btn.primary { background: #1f2937; color: #fff; }
 .btn.ghost { background: #f3f4f6; color: #4b5563; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.msg { font-size: 13px; margin-bottom: 10px; padding: 8px 10px; border-radius: 6px; }
+.msg { font-size: 13px; margin-bottom: 10px; padding: 8px 10px; border-radius: 0; }
 .msg.err { background: #fee2e2; color: #b91c1c; }
 .msg.ok { background: #ecfdf5; color: #047857; }
 .hint { font-size: 12px; color: #9ca3af; margin: 12px 0 0; line-height: 1.5; }

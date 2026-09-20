@@ -38,7 +38,7 @@ const storyId = route.params.id as string
   min-width: 96px;
   padding: 8px 14px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--bg-card);
   color: var(--muted);
   font-size: 14px;

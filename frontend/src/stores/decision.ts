@@ -26,6 +26,15 @@ export const useDecisionStore = defineStore('decision', () => {
   const revealed = ref<Card | null>(null)
   const customInstruction = ref('')
 
+  // 抽卡浮层开关：跨页面/组件共享（侧栏"抽卡"与正文底部按钮共用）
+  const drawOpen = ref(false)
+  function toggleDraw() {
+    drawOpen.value = !drawOpen.value
+  }
+  function closeDraw() {
+    drawOpen.value = false
+  }
+
   // 流程控制
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -96,21 +105,19 @@ export const useDecisionStore = defineStore('decision', () => {
     await _stream({ draw: true })
   }
 
-  /** 采用当前选择（明选卡 / 自由输入指令），流式生成正文。 */
+  /** 采用当前选择（已点卡 / 已输入指令），流式生成正文。 */
   async function apply() {
     if (!storyId.value || decisionNo.value == null) return
-    if (mode.value === 'gacha_pick' && !revealed.value) {
+    const text = customInstruction.value.trim()
+    if (text) {
+      await _stream({ custom_instruction: text })   // 有自由输入 → 按输入推进
+      return
+    }
+    if (!revealed.value) {
       error.value = '请先选择一张卡'
       return
     }
-    if (mode.value === 'free' && !customInstruction.value.trim()) {
-      error.value = '请输入剧情指令'
-      return
-    }
-    const body = mode.value === 'free'
-      ? { custom_instruction: customInstruction.value.trim() }
-      : { card_id: revealed.value!.card_id }
-    await _stream(body)
+    await _stream({ card_id: revealed.value!.card_id })
   }
 
   /** 调用流式端点：读 SSE 事件，逐 token 更新 streamingText，结束时落库并进入下一分歧。 */
@@ -231,6 +238,7 @@ export const useDecisionStore = defineStore('decision', () => {
   return {
     storyId, synopsis, passages, decisionNo, cards, mode, revealed, customInstruction,
     loading, error, lastAction, nextDecisionNo, lastLint, lastConsistency, streamingText,
+    drawOpen, toggleDraw, closeDraw,
     create, load, draw, apply, applyCard, undo, next, pickLocal, reset,
   }
 })
