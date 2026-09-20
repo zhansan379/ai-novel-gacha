@@ -150,6 +150,53 @@ async def list_styles():
     return {"styles": _list()}
 
 
+# ---------- 模型接入配置（前端可设） ----------
+class ModelConfigRequest(BaseModel):
+    provider: str = Field(min_length=1, max_length=40)
+    model: str = Field(min_length=1, max_length=80)
+    base_url: str = Field(default="", max_length=200)
+    api_key: str = Field(default="", max_length=300)
+
+
+@router.get("/models/config", tags=["config"])
+def get_model_config():
+    """读取当前模型接入状态（Key 脱敏，仅返回是否已设置）。"""
+    from app.services.keychain import default_base_url
+    cfg = registry.gateway.resolve()
+    provider = cfg["provider"] if cfg else registry.gateway.settings.default_provider
+    base = cfg["base_url"] if cfg else default_base_url(provider)
+    return {
+        "provider": provider,
+        "model": (cfg or {}).get("model", ""),
+        "base_url": base,
+        "configured": cfg is not None,
+        "api_key_set": bool(cfg and cfg.get("api_key")),
+        "mode": registry.gateway.mode(),
+    }
+
+
+@router.post("/models/config", tags=["config"])
+async def set_model_config(body: ModelConfigRequest):
+    """保存模型接入配置（持久化到 SQLite；Key 不回传明文）。"""
+    from app.services.keychain import default_base_url
+    base_url = body.base_url.strip() or default_base_url(body.provider.strip())
+    registry.keychain.save(provider=body.provider.strip(), model=body.model.strip(),
+                           base_url=base_url, api_key=body.api_key.strip())
+    cfg = registry.gateway.resolve()
+    return {
+        "provider": cfg["provider"], "model": cfg["model"], "base_url": cfg["base_url"],
+        "configured": True, "api_key_set": bool(cfg.get("api_key")),
+        "mode": registry.gateway.mode(),
+    }
+
+
+@router.post("/models/config/clear", tags=["config"])
+async def clear_model_config():
+    """清空前端配置，回到 mock/环境变量模式。"""
+    registry.keychain.clear()
+    return {"configured": False, "mode": registry.gateway.mode()}
+
+
 @router.get("/stories/{sid}", response_model=StorySummary, tags=["story"])
 async def get_story(sid: str = Path(...)):
     story = decision_path(sid)
@@ -267,6 +314,7 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
     """
     story = decision_path(sid)
 
+    card: Card | None = None
     # 解析三选一动作 → (direction_spec, mode, card_id)
     if body.draw:
         d = _decision_of(story, no)
@@ -287,7 +335,8 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
                                                          "message": f"卡不在当前卡池: {body.card_id}"})
         direction, mode, card_id = _card_spec(card), "gacha_pick", card.card_id
     else:
-        direction, mode, card_id = registry.story_service.spec_from_instruction(body.custom_instruction), "free", None
+        direction = registry.story_service.spec_from_instruction(body.custom_instruction)
+        mode, card_id = "free", None
 
     try:
         gen = registry.story_service.apply_decision_stream(story, no, mode, direction, card_id)
@@ -298,7 +347,10 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
         async for ev in gen:
             etype = ev["type"]
             if etype == "start":
-                yield _sse("passage_start", {"decision_no": no, "mode": mode, "card_id": card_id})
+                yield _sse("passage_start", {
+                    "decision_no": no, "mode": mode, "card_id": card_id,
+                    "card": card.model_dump(mode="json") if card else None,
+                })
             elif etype == "delta":
                 yield _sse("delta", {"text": ev["text"]})
             else:  # end
