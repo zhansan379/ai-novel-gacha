@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 from app.schemas import Card, CardLabel, Rarity
@@ -128,3 +130,13 @@ class MockLLM:
         if task == "consistency":
             return '{"passed": true, "issues": []}'
         return prose + f"\n\n（AI 正文占位：基于　「{hint}」　生成，接入真实模型后替换）"
+
+    async def stream(self, *, task: str, system: str, user: str, max_tokens: int = 800,
+                     temperature: float | None = None) -> AsyncIterator[str]:
+        """本地 mock 流式：把整段文本按小块逐步产出，模拟逐 token。"""
+        text = await self.complete(task=task, system=system, user=user,
+                                   max_tokens=max_tokens, temperature=temperature)
+        step = 28
+        for i in range(0, len(text), step):
+            yield text[i:i + step]
+            await asyncio.sleep(0)

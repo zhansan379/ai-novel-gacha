@@ -1,9 +1,11 @@
 """v1 业务路由：故事 → 卡池 → 盲抽/明选/自由输入 → 生成正文 的决策闭环。"""
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Path
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from app.gacha import GachaEngine
@@ -44,6 +46,19 @@ class AppliesDecision(BaseModel):
     def _exactly_one(self) -> "AppliesDecision":
         if (self.card_id is None) == (self.custom_instruction is None):
             raise ValueError("apply 需且仅需 card_id 或 custom_instruction 之一")
+        return self
+
+
+class StreamDecision(BaseModel):
+    draw: bool = False
+    card_id: str | None = None
+    custom_instruction: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def _exactly_one_action(self) -> "StreamDecision":
+        chosen = [self.draw, self.card_id is not None, self.custom_instruction is not None]
+        if sum(chosen) != 1:
+            raise ValueError("stream 需且仅需 draw / card_id / custom_instruction 之一")
         return self
 
 
@@ -112,6 +127,10 @@ def _decision_of(story: Story, no: int) -> object:
     if d is None:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": f"决策节点不存在: {no}"})
     return d
+
+
+def _sse(name: str, data: dict) -> str:
+    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 # ---------- 端点 ----------
@@ -238,3 +257,57 @@ async def relint_passage(sid: str, np: int):
     return await registry.story_service.review(
         premise=story.premise, synopsis=story.synopsis, content=p["content"], facts=build_facts(story),
     )
+
+
+@router.post("/stories/{sid}/decisions/{no}/stream", tags=["decision"])
+async def stream_decision(sid: str, no: int, body: StreamDecision):
+    """SSE 流式：按 盲抽/明选/自由输入 之一锁定决策并流式生成正文。
+
+    事件流：passage_start → delta* → passage_end{passage, lint, consistency, next_decision_no}
+    """
+    story = decision_path(sid)
+
+    # 解析三选一动作 → (direction_spec, mode, card_id)
+    if body.draw:
+        d = _decision_of(story, no)
+        if d.applied:
+            raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+        if not d.cards:
+            d.cards = await registry._direction.generate(  # noqa: SLF001
+                premise=story.premise, synopsis=story.synopsis,
+                tail=(story.passages[-1]["content"] if story.passages else ""), decision_no=no,
+            )
+        card = _gacha.draw(CardPool(decision_no=no, pool_version=d.pool_version, cards=d.cards))
+        direction, mode, card_id = _card_spec(card), "gacha_draw", card.card_id
+    elif body.card_id is not None:
+        d = _decision_of(story, no)
+        card = next((c for c in d.cards if c.card_id == body.card_id), None)
+        if card is None:
+            raise HTTPException(status_code=422, detail={"code": "VALIDATION_ERROR",
+                                                         "message": f"卡不在当前卡池: {body.card_id}"})
+        direction, mode, card_id = _card_spec(card), "gacha_pick", card.card_id
+    else:
+        direction, mode, card_id = registry.story_service.spec_from_instruction(body.custom_instruction), "free", None
+
+    try:
+        gen = registry.story_service.apply_decision_stream(story, no, mode, direction, card_id)
+    except DecisionLocked:
+        raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策已锁定"})
+
+    async def event_stream():
+        async for ev in gen:
+            etype = ev["type"]
+            if etype == "start":
+                yield _sse("passage_start", {"decision_no": no, "mode": mode, "card_id": card_id})
+            elif etype == "delta":
+                yield _sse("delta", {"text": ev["text"]})
+            else:  # end
+                p = ev["passage"]
+                yield _sse("passage_end", {
+                    "decision_no": no, "passage": p["content"],
+                    "lint": p.get("lint", []),
+                    "consistency": p.get("consistency", {"passed": True, "issues": []}),
+                    "next_decision_no": ev["next_decision_no"],
+                })
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")

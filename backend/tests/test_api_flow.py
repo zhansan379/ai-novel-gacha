@@ -112,3 +112,25 @@ def test_quality_fields_in_draw_and_relint_endpoint():
     rel = c.post(f"/v1/stories/{sid}/passages/1/lint")
     assert rel.status_code == 200
     assert "lint" in rel.json() and "consistency" in rel.json()
+
+
+def test_stream_decision_sse():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "流式测试"}).json()["story_id"]
+    r = c.post(f"/v1/stories/{sid}/decisions/1/stream", json={"draw": True})
+    assert r.status_code == 200
+    body = r.text
+    assert "event: passage_start" in body
+    assert "event: delta" in body
+    assert "event: passage_end" in body
+    assert '"next_decision_no": 2' in body
+    assert '"lint"' in body
+
+
+def test_stream_requires_one_action():
+    c = _client()
+    sid = c.post("/v1/stories", json={"premise": "x"}).json()["story_id"]
+    # draw + card_id 同时存在 → 422
+    r = c.post(f"/v1/stories/{sid}/decisions/1/stream",
+               json={"draw": True, "custom_instruction": "x"})
+    assert r.status_code == 422

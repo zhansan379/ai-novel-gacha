@@ -109,6 +109,52 @@ class StoryService:
         self._store.save(story)
         return passage
 
+    async def apply_decision_stream(self, story: Story, decision_no: int, mode: str,
+                                    direction_spec: DirectionSpec, card_id: str | None = None):
+        """流式版 apply：锁定 → 逐块生成正文 → 质检/存储/推进 → yield 事件 dict。
+
+        事件 dict 形态：{"type": "start"|"delta"|"end", ...}，由路由层转发为 SSE 事件。
+        若中途出错，回滚 decision.applied 以便重试。
+        """
+        decision = self._current_decision(story, decision_no)
+        if decision.applied:
+            from app.services.store import DecisionLocked
+            raise DecisionLocked(decision_no)
+
+        decision.mode = mode
+        decision.card_id = card_id
+        decision.direction_spec = direction_spec
+        decision.applied = True
+
+        tail = story.passages[-1]["content"] if story.passages else ""
+        yield {"type": "start", "decision_no": decision_no, "mode": mode, "card_id": card_id}
+
+        pieces: list[str] = []
+        try:
+            async for chunk in self._writer.stream_generate(
+                premise=story.premise, synopsis=story.synopsis, direction=direction_spec,
+                tail=tail, style_profile_id=story.style_profile_id,
+            ):
+                pieces.append(chunk)
+                yield {"type": "delta", "text": chunk}
+        except Exception:
+            decision.applied = False  # 出错回滚，允许重试
+            raise
+
+        content = "".join(pieces).strip()
+        lint, consistency = await self._quality(story.premise, story.synopsis, content,
+                                                facts=build_facts(story))
+        passage = {"no": len(story.passages) + 1, "decision_no": decision_no,
+                   "content": content, "lint": lint, "consistency": consistency}
+        story.passages.append(passage)
+
+        next_d = story.advance()
+        next_d.cards = await self._direction.generate(
+            premise=story.premise, synopsis=story.synopsis, tail=content, decision_no=next_d.no,
+        )
+        self._store.save(story)
+        yield {"type": "end", "passage": passage, "next_decision_no": story.next_decision_no}
+
     @staticmethod
     def spec_from_instruction(text: str) -> DirectionSpec:
         return DirectionSpec(kind=DirectionKind.CUSTOM, summary=text.strip()[:200], risk_flag=True)

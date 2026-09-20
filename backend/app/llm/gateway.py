@@ -44,6 +44,27 @@ class LLMGateway:
         )
         return await llm.complete(system=system, user=user, max_tokens=max_tokens)
 
+    def stream(self, *, task: str, system: str, user: str, max_tokens: int | None = None,
+               temperature: float | None = None):
+        """流式版：返回异步迭代器，逐个增量产出文本。"""
+        provider = self.settings.default_provider
+        api_key = self.settings.api_keys.get(provider)
+        route = self._provider_route(task)
+        if temperature is not None:
+            route = Route(temperature=temperature, max_tokens=route.max_tokens)
+
+        if not api_key:
+            mock = MockLLM(provider=provider)
+            return mock.stream(task=task, system=system, user=user,
+                               max_tokens=max_tokens or route.max_tokens, temperature=route.temperature)
+
+        base_url = self.settings.base_urls.get(provider, self.settings.openai_compat_base_url)
+        llm = OpenAICompatLLM(
+            base_url=base_url, api_key=api_key, model=self.settings.default_model,
+            route=route, timeout=self.settings.llm_timeout,
+        )
+        return llm.stream(system=system, user=user, max_tokens=max_tokens)
+
     def mode(self) -> str:
         provider = self.settings.default_provider
         return "openai-compat" if self.settings.api_keys.get(provider) else "mock"

@@ -1,6 +1,8 @@
 """WriterAgent：基于已确定方向续写正文（含去 AI 味 + 文风预设注入）。"""
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from app.llm import LLMGateway
 from app.schemas import DirectionSpec
 from app.services.styles import StyleProfile, get_style
@@ -42,3 +44,25 @@ class WriterAgent:
             "请按此方向续写正文："
         )
         return await self._gateway.complete(task="draft", system=system, temperature=style.temperature, user=user)
+
+    async def stream_generate(self, *, premise: str, synopsis: str,
+                              direction: DirectionSpec | None, tail: str = "",
+                              style_profile_id: str | None = None) -> AsyncIterator[str]:
+        """流式续写：逐个增量产出正文（供 SSE）。"""
+        style = get_style(style_profile_id)
+        system = self._system(style)
+        if direction is None:
+            user = f"【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："
+        else:
+            extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
+            user = (
+                f"【故事前提】{premise}\n"
+                f"【故事简介】{synopsis}\n"
+                f"{f'【上一段】{tail}\n' if tail else ''}"
+                f"【已确定方向】{direction.summary}{extra}\n"
+                "请按此方向续写正文："
+            )
+        stream = self._gateway.stream(task="draft", system=system, user=user,
+                                      temperature=style.temperature)
+        async for chunk in stream:
+            yield chunk
