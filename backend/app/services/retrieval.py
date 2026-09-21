@@ -15,11 +15,20 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import settings
 from app.services.jsonparse import loads_coerce
+from app.services.vector_kb import KNOWN_ENTITIES
+
+
+def _named_in(text: str, entity: str) -> bool:
+    """当前文本是否点到该真实实体的名字（忽略大小写与空白差异，与 grounding._named_in 同口径）。"""
+    t = re.sub(r"\s+", "", (text or "").lower())
+    e = re.sub(r"\s+", "", (entity or "").lower())
+    return bool(e) and e in t
 
 _PROFILE_SYSTEM = """你是小说题材分析器。根据一本小说的前提与简介，判断它需要哪些外部资料来保证专业与真实，只输出一个 JSON 对象，不要任何解释或 markdown。
 
@@ -203,7 +212,7 @@ class ProfileDeterminer:
         )
 
 
-async def prefetch(profile: RetrievalProfile, web) -> list[str]:
+async def prefetch(profile: RetrievalProfile, web, premise: str = "") -> list[str]:
     """按画像 topics 并行网络预取（开书一次）。web by enabled=False / 无 key → 返回空，不联网。
 
     返回带来源标签的"专业检索『专题』：摘要"事实行，供并入 story.grounding。
@@ -211,10 +220,21 @@ async def prefetch(profile: RetrievalProfile, web) -> list[str]:
     """
     if web is None or not getattr(web, "enabled", False) or not profile.require_web:
         return []
-    tasks = [asyncio.create_task(web.search(t["label"])) for t in profile.topics]
+    topics = list(profile.topics or [])
+    # 前提点名真实实体时，补一条「早年出身/求学经历」角度的检索词：把查询方向从画像判出的
+    # "最新动态/行业趋势"拉回人物史，用"乡亲/送/资助/求学"等叙事词叠上前提原文，命中民间掌故
+    # （如"乡亲凑钱送学"），避免整本锚定最新商业场。注意不用"背景"这类抽象词——会把结果偏成百科索引页。
+    if premise:
+        for ent in KNOWN_ENTITIES:
+            if _named_in(premise, ent):
+                label = f"{ent} 早年求学 乡亲 送 资助 {premise}"
+                if not any(t.get("label") == label for t in topics):
+                    topics.append({"label": label, "kind": "historical"})
+    topics = topics[: settings.profiling_max_topics]
+    tasks = [asyncio.create_task(web.search(t["label"])) for t in topics]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     facts: list[str] = []
-    for topic, res in zip(profile.topics, results):
+    for topic, res in zip(topics, results):
         if isinstance(res, BaseException) or not res:
             continue
         label = (topic.get("label") or "").strip()

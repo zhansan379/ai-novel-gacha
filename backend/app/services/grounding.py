@@ -100,7 +100,7 @@ class WebSearch:
         return bool(self.api_key)
 
     async def search(self, query: str) -> str | None:
-        q = f"{query} 简介 是什么"
+        q = query  # 不再附加"简介 是什么"：那会把结果压成辞典型/百科解释，冲掉叙事性的民间掌故（如人物早年求学经历）
         try:
             import httpx
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -122,13 +122,13 @@ class WebSearch:
         ans = data.get("answer")
         if ans:
             parts.append(str(ans).strip())
-        for r in results[:2]:
-            c = (r.get("content") or "").strip()[:300]
+        for r in results[:3]:
+            c = (r.get("content") or "").strip()[:400]
             if c:
                 parts.append(c)
         if not parts:
             return None
-        return "；".join(parts)[:500]
+        return "；".join(parts)[:900]
 
 
 class GroundingService:

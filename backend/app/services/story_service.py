@@ -177,7 +177,7 @@ class StoryService:
         if profile.genre:
             story.genre = profile.genre.strip()
             current_genre_label.set(story.genre)
-        prefetched = await prefetch(profile, self._web)
+        prefetched = await prefetch(profile, self._web, premise=premise)
         for f in kb.facts:
             if f not in story.grounding:
                 story.grounding.append(f)
