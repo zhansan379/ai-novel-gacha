@@ -28,10 +28,13 @@ _PROFILE_SYSTEM = """你是小说题材分析器。根据一本小说的前提�
 - profession：专业深度。涉及医学/法律/军事/金融/采掘/职场等专业流程则 high，并列出 domains（涉及的专业领域，中文名词）。
 - timeliness：时效性。只有当剧情核心依赖"当下正在变的现实"（最新政策/在售科技产品/时事/热搜/近期赛果/行业当下动态）才 high；借用稳定设定（古代制度、稳定规程）一律 low 或 none。
 - continuity：设定连续性。长篇/系列/群像/伏笔较多的 → high；短篇 → low。
+- genre：主题材。从下面题材清单里选出最贴近的一个（只选一个、只取清单里的词，无法判定则空字符串 ""）。题材清单：{genres}。
 - topics：真正需要联网查证的中文专题清单（每项 {label, kind}，kind 取 professional|historical|technical|regional|timely 之一）。纯架空且无需查证时为 []。
 - require_web：topics 非空即 true，否则 false。
 
-示例输入「我在山西下井的日子」→ real_world high、profession 含采掘、timeliness low、topics 含「煤矿井工开采流程」「井下安全规程·瓦斯·透水防治」「山西煤炭工业概况」。"""
+示例输入「我在山西下井的日子」→ real_world high、profession 含采掘、timeliness low、topics 含「煤矿井工开采流程」「井下安全规程·瓦斯·透水防治」「山西煤炭工业概况」，genre "现实"。"""
+
+_PROFILE_GENRES = "玄幻、奇幻、武侠、仙侠、都市、现实、军事、历史、游戏、体育、科幻、诸天无限、悬疑灵异、轻小说、言情、末世、种田"
 
 
 @dataclass
@@ -44,6 +47,7 @@ class RetrievalProfile:
     continuity: str = "low"
     topics: list = field(default_factory=list)   # [{label, kind}]
     require_web: bool = False
+    genre: str = ""                              # 主题材（profiling 判定，供题材引导用）
 
     def merits_dict(self) -> dict:
         """落库形态（JSON 可序列化，供 snapshot/import 往返）。"""
@@ -55,6 +59,7 @@ class RetrievalProfile:
             "continuity": self.continuity,
             "topics": [{"label": t.get("label", ""), "kind": t.get("kind", "")} for t in self.topics],
             "require_web": bool(self.require_web),
+            "genre": self.genre,
         }
 
     @classmethod
@@ -70,6 +75,7 @@ class RetrievalProfile:
             topics=[{"label": t.get("label", ""), "kind": t.get("kind", "")}
                     for t in (data.get("topics") or []) if (t or {}).get("label")],
             require_web=bool(data.get("require_web")),
+            genre=str(data.get("genre") or ""),
         )
 
 
@@ -156,7 +162,7 @@ class ProfileDeterminer:
         if settings.profiling_enabled and self._gateway is not None:
             try:
                 raw = await self._gateway.complete(
-                    task="retrieval-profile", system=_PROFILE_SYSTEM,
+                    task="retrieval-profile", system=_PROFILE_SYSTEM.replace("{genres}", _PROFILE_GENRES),
                     user=f"【小说前提】{premise}\n【小说简介】{synopsis}\n\nJSON：",
                 )
                 data = loads_coerce(raw)
@@ -185,6 +191,7 @@ class ProfileDeterminer:
         rw = str(data.get("real_world") or "low")
         tl = str(data.get("timeliness") or "low")
         ct = str(data.get("continuity") or "low")
+        genre = str(data.get("genre") or "").strip()
         return RetrievalProfile(
             real_world=rw if rw in ("none", "low", "high") else "low",
             profession=prof,
@@ -192,6 +199,7 @@ class ProfileDeterminer:
             continuity=ct if ct in ("none", "low", "high") else "low",
             topics=topics[: settings.profiling_max_topics],
             require_web=bool(topics),
+            genre=genre,
         )
 
 

@@ -10,3 +10,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 
 current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
+
+# 当前故事的题材（由开书阶段的 profiling LLM 判定得出，比关键词更准）。
+# 题材引导(resolve_genres)优先读它，作为关键词匹配之外的更高优先级来源。
+current_genre_label: ContextVar[str | None] = ContextVar("current_genre_label", default=None)

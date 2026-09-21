@@ -10,6 +10,7 @@ import json
 
 from app.llm import LLMGateway
 from app.llm.errors import ModelError
+from app.services.genre import genre_constraint_text, resolve_genres, structure_hint
 from app.services.jsonparse import loads_coerce
 
 _BLUEPRINT_SYSTEM = """你是小说世界构建师。基于「前提 + 简介」，产出结构化设定：
@@ -176,4 +177,26 @@ def _blueprint_user(premise: str, synopsis: str, grounding: str,
         f"地理：{sk.get('geography_brief', '')}；力量体系：{sk.get('power_system_brief', '')}；"
         f"势力：{'、'.join(sk.get('factions') or [])}；主角定位：{sk.get('protagonist_anchor', '')}。"
     ) if skeleton else ""
-    return (f"{_seed_grounding(grounding)}【前提】{premise}\n【简介】{synopsis}\n{sk_txt}\n{prompt_end}")
+    genre_block = _genre_block(premise)
+    struct_hint = _structure_hint(premise)
+    tail = "\n".join(x for x in (genre_block, struct_hint) if x)
+    suffix = f"\n{tail}" if tail else ""
+    return (f"{_seed_grounding(grounding)}【前提】{premise}\n【简介】{synopsis}\n{sk_txt}{suffix}\n{prompt_end}")
+
+
+def _genre_block(premise: str) -> str:
+    """按前提识别主题材，生成「题材约束」块（开关关闭或未命中则空串）。"""
+    from app.config import settings
+    if not settings.genre_guidance_enabled:
+        return ""
+    return genre_constraint_text(resolve_genres(premise))
+
+
+def _structure_hint(premise: str) -> str:
+    """按前提给出题材典型分幕提示（供世界观/历史等切片对齐；未命中则空串）。"""
+    from app.config import settings
+    if not settings.genre_guidance_enabled:
+        return ""
+    if not resolve_genres(premise):
+        return ""
+    return structure_hint(resolve_genres(premise))

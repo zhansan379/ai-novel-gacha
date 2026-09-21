@@ -10,6 +10,7 @@ import json
 from app.llm import LLMGateway
 from app.llm.errors import ModelError
 from app.schemas import Card
+from app.services.genre import genre_constraint_text, resolve_genres
 from app.services.jsonparse import loads_coerce
 
 _DIRECTION_SYSTEM = """你是一款互动小说系统里的「命运卡生成器」。
@@ -31,6 +32,14 @@ label(EVENT|ACTION|SCENE|MEETING|FORESHADOW) rarity(N|R|SR|SSR) weight(int 1~100
 cause(string≤120) aftermath(string≤120) suspense(string≤120)
 risk_balance(object, 仅SSR必填: {tension:int 1~10, suggested_turn:string≤80})
 """
+
+
+def _genre_block(premise: str) -> str:
+    """按前提拼出「题材约束」块，让命运卡保持在题材内；开关关/未命中则空串。"""
+    from app.config import settings
+    if not settings.genre_guidance_enabled:
+        return ""
+    return genre_constraint_text(resolve_genres(premise))
 
 
 def _parse_cards(raw: str) -> list[Card]:
@@ -56,10 +65,11 @@ class DirectionGenerator:
         ctx = (f"\n【当前设定状态（须尊重；含真实事实且与简介冲突时以事实为准）】\n{context}"
                if context else "")
         cov = f"\n【需接着回收的悬念线（新卡应顺着它走或与它并行，别让设定线悬空）】\n{carryover}" if carryover else ""
+        genre = _genre_block(premise)
         user = (
             f"{ctx}{cov}\n"
             f"【故事前提】{premise}\n"
-            f"【故事简介】{synopsis}\n"
+            f"【故事简介】{synopsis}{genre}\n"
             f"【待决剧情尾巴】{tail}\n"
             f"【本次分歧节点 #{decision_no}】请输出命运卡 JSON 数组："
         )

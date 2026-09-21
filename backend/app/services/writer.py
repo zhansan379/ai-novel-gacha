@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 from app.llm import LLMGateway
 from app.schemas import DirectionSpec
+from app.services.genre import card_text, genre_constraint_text, resolve_genres
 from app.services.styles import StyleProfile, get_style
 
 _WRITER_SYSTEM = """你是长篇小说的正文作者。
@@ -33,6 +34,21 @@ _METHODOLOGY = """[写作方法论：展示而非告知]
 - 5. 一致性：人名、地名、设定前后统一，杜绝混用。
 - 6. 背景要透口，不设路障：借角色视角、现场环境、自然对白让读者进入世界氛围与设定，不假设读者已知背景；但禁止整段设定说明或名词堆砌，交代点到即止、融入叙事。
 """
+
+
+def _genre_guide(premise: str) -> str:
+    """按前提拼出题材引导块（约束 + 正文题材卡），用于正文注入；开关关/未命中则空串。"""
+    from app.config import settings
+    if not settings.genre_guidance_enabled:
+        return ""
+    specs = resolve_genres(premise)
+    if not specs:
+        return ""
+    blocks = [genre_constraint_text(specs)]
+    cad = "\n".join(c for s in specs if (c := card_text(s)))
+    if cad:
+        blocks.append("【题材正文参考】\n" + cad)
+    return "\n\n".join(blocks)
 
 
 def _direction_plan(direction: DirectionSpec) -> str:
@@ -68,7 +84,8 @@ class WriterAgent:
         if direction is None:
             return await self._gateway.complete(
                 task="draft", system=system + _OPENING_GROUNDING, temperature=style.temperature,
-                user=(f"{ctx}\n【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："),
+                user=(f"{ctx}\n【故事前提】{premise}\n【故事简介】{synopsis}"
+                      f"{_genre_guide(premise)}\n请续写开篇正文："),
             )
         plan = _direction_plan(direction)
         extra = f"\n【场景提示】{direction.scene}" if direction.scene else ""
@@ -77,6 +94,7 @@ class WriterAgent:
             f"{ctx}\n"
             f"【故事前提】{premise}\n"
             f"【故事简介】{synopsis}\n"
+            f"{_genre_guide(premise)}\n"
             f"{tail_seg}"
             f"【已确定方向】{direction.summary}{extra}{plan}\n"
             "请按此方向续写正文："
@@ -92,7 +110,7 @@ class WriterAgent:
         ctx = (f"\n【当前设定状态（须尊重；含真实事实且与简介冲突时以事实为准）】\n{context}"
                if context else "")
         if direction is None:
-            user = f"{ctx}\n【故事前提】{premise}\n【故事简介】{synopsis}\n请续写开篇正文："
+            user = f"{ctx}\n【故事前提】{premise}\n【故事简介】{synopsis}{_genre_guide(premise)}\n请续写开篇正文："
             system = system + _OPENING_GROUNDING
         else:
             plan = _direction_plan(direction)
@@ -102,6 +120,7 @@ class WriterAgent:
                 f"{ctx}\n"
                 f"【故事前提】{premise}\n"
                 f"【故事简介】{synopsis}\n"
+                f"{_genre_guide(premise)}\n"
                 f"{tail_seg}"
                 f"【已确定方向】{direction.summary}{extra}{plan}\n"
                 "请按此方向续写正文："

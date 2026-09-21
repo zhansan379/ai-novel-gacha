@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     synopsis_recheck: bool = True
     synopsis_max_retries: int = 2      # 简介重写上限（校验门在冲突时回喂重写的最大次数）
 
+    # 题材引导：按前提识别主题材，注入「反模式 + 节奏」约束（数据来源 storyforge metadata，
+    # 题材卡来源 oh-story，均 MIT，见 data/genre_cards/）。题材约束是柔性的「避免」，层级低于真实事实基座。
+    genre_guidance_enabled: bool = True
+    genre_max_recall: int = 1           # 每处最多召回几个题材约束（对齐 oh-story 只召回一张）
+
     # Chroma 内置真实知识库（唯一事实来源）
     chroma_path: str = "data/chroma"
     embedding_mode: str = "n-gram"   # "n-gram"(默认,离线) | "llm"(外部 /embeddings, 语义更强)

@@ -7,13 +7,14 @@ import uuid
 
 from app.consistency.checker import ConsistencyChecker
 from app.config import settings
-from app.context import current_user_id
+from app.context import current_genre_label, current_user_id
 from app.deslop import scan as deslop_scan
 from app.llm import LLMGateway
 from app.schemas import Card, DirectionKind, DirectionSpec
 from app.services.blueprint import BlueprintBuilder, _seed_grounding
 from app.services.direction import DirectionGenerator
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
+from app.services.genre import genre_constraint_text, resolve_genres, structure_hint
 from app.services.grounding import GROUNDING_LABEL, GroundingService
 from app.services.jsonparse import loads_coerce
 from app.services.narrative import NarrativeUpdater
@@ -23,8 +24,15 @@ from app.services.store import Story, StoryStore
 from app.services.styles import DEFAULT_STYLE_ID, get_style, match_style_id, style_choice_text
 from app.services.writer import WriterAgent
 
-_INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），
-说明核心设定、主角目标与可能的冲突走向。只输出简介本身。
+_INIT_SYSTEM = """你是小说开书编辑。根据一句话灵感，产出一段简洁的世界观与大纲简介（150 字内），只输出简介本身。
+
+写作要求：
+1. 忠于并充分运用前提：从前提提炼最独特、最有辨识度的那一点作为全书内核与张力来源，所有设定、人物与走向都围绕它展开，与前提密切相关，不要让它沦为可有可无的背景板。
+2. 只依据前提产出：常见网文设定（废柴/重生/系统/金手指/退婚/家族羞辱/打怪升级/卷入阴谋/攀科技树等）一律不得用来“补足”前提没说的部分；前提没有的东西不要擅自引入。
+3. 不要套用通用模板，也不要为求新硬贴现代科技/系统/机甲/芯片等设定；科技或异能元素只能是前提的自然延伸。
+4. 动词与因果优先于名词堆砌：张力来自人物处境与条件的变化，而不是换一个外壳重复同一套升级叙事；避免“本书讲述”“围绕着”“逐渐成长”“最终成为”“踏上旅程”这类空泛表述。
+5. 产出前自检：如果把前提里最独特的那一点删掉，这条简介是否仍能平移到任意网文上？若是，说明它没写到点子上，重写。冲突、走向都应内生于前提设定，而非来自通用俗套。
+
 若提示词里附有「真实事实基座」，必须以它作为事实基准：允许在其上展开想象，但不得虚构与真实记载相悖的
 “事实”（真实人物/公司/产品的任职、年份、事件、经营范围、定义等须与事实一致）；确需架空改写的要素，
 须在简介里含蓄点出它是「改写设定」而非史实。"""
@@ -73,6 +81,13 @@ def _pending_hook(spec: DirectionSpec | None) -> str:
     if getattr(spec, "aftermath", None):
         parts.append(f"上一事件的去向：{spec.aftermath}")
     return "\n".join(parts)
+
+
+def _genre_block(premise: str) -> str:
+    """按前提识别主题材，生成可注入的「题材约束」块；开关关闭或未命中则空串。"""
+    if not settings.genre_guidance_enabled:
+        return ""
+    return genre_constraint_text(resolve_genres(premise))
 
 
 class StoryService:
@@ -156,6 +171,11 @@ class StoryService:
         on_stage("检索真实背景·判定检索画像中")
         kb = await self._grounding.resolve(premise)
         profile = await self._determine_profile(premise, "")
+        # profiling LLM 顺带判定的题材（比关键词准），写入 contextvar 供题材引导优先采纳，
+        # 并作为顶层字段落库给前端展示。
+        if profile.genre:
+            story.genre = profile.genre.strip()
+            current_genre_label.set(story.genre)
         prefetched = await prefetch(profile, self._web)
         for f in kb.facts:
             if f not in story.grounding:
@@ -168,7 +188,8 @@ class StoryService:
         if settings.synopsis_grounded:
             synopsis = await self._grounded_init(premise, full_context)
         else:
-            synopsis = await self._gateway.complete(task="init", system=_INIT_SYSTEM, user=premise)
+            synopsis = await self._gateway.complete(
+                task="synopsis", system=_INIT_SYSTEM, user=premise + "\n" + _genre_block(premise))
         story.synopsis = synopsis.strip()
 
         if settings.synopsis_recheck:
@@ -195,8 +216,8 @@ class StoryService:
     async def _grounded_init(self, premise: str, full_context: str) -> str:
         """带真实事实的简介生成：把知识库+网络合成的完整上下文作为前缀注入 init 调用。"""
         return await self._gateway.complete(
-            task="init", system=_INIT_SYSTEM,
-            user=f"{_seed_grounding(full_context)}【前提】{premise}\n{_INIT_END}")
+            task="synopsis", system=_INIT_SYSTEM,
+            user=f"{_seed_grounding(full_context)}【前提】{premise}\n{_genre_block(premise)}{_INIT_END}")
 
     async def _synopsis_vs_facts(self, premise: str, synopsis: str, facts: list[str]) -> dict:
         """比对「简介」与「真实事实」，检出简介里的事实臆断。失败保守通过，不阻塞。"""

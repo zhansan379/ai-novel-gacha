@@ -106,7 +106,21 @@ def _blueprint_json(story: Story) -> str:
         "foreshadows": story.foreshadows, "relations": story.relations,
         "timeline": story.timeline, "grounding": story.grounding,
         "retrieval_profile": story.retrieval_profile,
+        "genre": story.genre,
     }, ensure_ascii=False)
+
+
+def _genre_from_meta(text: str | None) -> str:
+    """从 blueprint_json 元数据里取题材（书架列表用，不完整/解析失败则空串）。"""
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return ""
+    if isinstance(data, dict):
+        return str(data.get("genre") or (data.get("retrieval_profile") or {}).get("genre") or "")
+    return ""
 
 
 def _fill_blueprint(story: Story, text: str | None) -> None:
@@ -125,6 +139,7 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
         story.grounding = data.get("grounding") or []
         story.timeline = data.get("timeline") or []
         story.retrieval_profile = data.get("retrieval_profile") or {}
+        story.genre = data.get("genre") or (story.retrieval_profile or {}).get("genre", "")
         if data.get("style"):
             story.style_profile_id = data["style"]
 
@@ -258,7 +273,7 @@ class SQLiteStore:
         """返回某用户故事的精简概览（书架用），按创建先后倒序。"""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT rowid AS rid, id, premise, synopsis, next_decision_no, status "
+                "SELECT rowid AS rid, id, premise, synopsis, next_decision_no, status, blueprint_json "
                 "FROM stories WHERE user_id=? ORDER BY rid DESC",
                 (user_id,),
             ).fetchall()
@@ -269,6 +284,7 @@ class SQLiteStore:
                     "synopsis": r["synopsis"],
                     "next_decision_no": r["next_decision_no"],
                     "status": r["status"] or "active",
+                    "genre": _genre_from_meta(r["blueprint_json"]),
                 }
                 for r in rows
             ]
@@ -301,6 +317,7 @@ class SQLiteStore:
                 "foreshadows": story.foreshadows, "relations": story.relations,
                 "timeline": story.timeline, "grounding": story.grounding,
                 "retrieval_profile": story.retrieval_profile,
+                "genre": story.genre or (story.retrieval_profile or {}).get("genre", ""),
                 "chapters": [
                     {"no": c.no, "title": c.title, "passage_from": c.passage_from,
                      "passage_to": c.passage_to, "is_final": c.is_final,
