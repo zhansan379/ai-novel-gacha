@@ -276,10 +276,15 @@ const cardsLoading = ref(false)
       const res = await api.streamDecision(storyId.value, no, body)
       if (!res.ok || !res.body) {
         let msg = `请求失败 (${res.status})`
+        let code = ''
         try {
           const j = await res.json()
           msg = j?.detail?.message ?? msg
+          code = j?.detail?.code ?? ''
         } catch { /* ignore */ }
+        // 该决策的正文已被生成（并发/重复点击）：正文已在，不是用户可见的错误。
+        // 直接静默返回，交由按钮的 loading/禁用态兜住交互，避免把"请勿重复提交"当报错弹给读者。
+        if (res.status === 409 && code === 'CONFLICT') return
         throw new Error(msg)
       }
       await consumeSSE(res, (ev) => {

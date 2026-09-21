@@ -51,8 +51,12 @@ function labelCn(label: string) {
         <span v-if="store.cardsLoading && store.cards.length === 0" class="hint cards-loading">
           生成下一拍卡池…
         </span>
-        <button class="btn primary draw-btn" :disabled="store.loading" @click="store.draw">
-          {{ store.loading ? '抽卡中…' : '随机盲抽一张' }}
+        <button
+          class="btn primary draw-btn"
+          :disabled="store.loading || store.cardsLoading"
+          @click="store.draw"
+        >
+          {{ store.loading || store.cardsLoading ? '抽卡中…' : '随机盲抽一张' }}
         </button>
       </div>
 
@@ -63,7 +67,7 @@ function labelCn(label: string) {
         <button
           v-for="card in store.cards"
           :key="card.card_id"
-          :disabled="store.loading"
+          :disabled="store.loading || store.cardsLoading"
           :class="['card', rarityClass(card.rarity), { chosen: store.revealed?.card_id === card.card_id }]"
           @click="store.applyCard(card.card_id)"
         >
@@ -86,10 +90,10 @@ function labelCn(label: string) {
       />
       <button
         class="btn primary"
-        :disabled="store.loading || !store.customInstruction.trim()"
+        :disabled="store.loading || store.cardsLoading || !store.customInstruction.trim()"
         @click="store.apply"
       >
-        {{ store.loading ? '生成中…' : '按我的输入推进' }}
+        {{ store.loading || store.cardsLoading ? '生成中…' : '按我的输入推进' }}
       </button>
     </div>
   </section>
