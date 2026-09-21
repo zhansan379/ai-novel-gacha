@@ -12,11 +12,25 @@ const BASE = '/v1'
 
 export { BASE }
 
+/** 读取当前会话 token（未登录为空串，请求将不带 Authorization → 401 由后端判）。 */
+export function getToken(): string {
+  return localStorage.getItem('cn_token') ?? ''
+}
+
+function authHeaders(init: RequestInit = {}): RequestInit {
+  const token = getToken()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(init.headers as object) }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  return { ...init, headers }
+}
+
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
+  const res = await fetch(`${BASE}${path}`, authHeaders(init))
+  if (res.status === 401) {
+    // token 失效：清除本地会话并抛出已登录标记，由调用方/守卫跳转登录页
+    localStorage.removeItem('cn_token')
+    throw new Error('登录已过期，请重新登录')
+  }
   if (!res.ok) {
     let msg = `请求失败 (${res.status})`
     try {
@@ -117,7 +131,7 @@ export const api = {
     }),
 
   deleteStory: async (storyId: string) => {
-    const res = await fetch(`${BASE}/stories/${storyId}`, { method: 'DELETE' })
+    const res = await fetch(`${BASE}/stories/${storyId}`, authHeaders({ method: 'DELETE' }))
     if (!res.ok) {
       let msg = `删除失败 (${res.status})`
       try {
@@ -159,11 +173,30 @@ export const api = {
   /** 发起正文流式生成（SSE），返回 Response 供调用方读取事件流。 */
   streamDecision: (storyId: string, decisionNo: number,
     body: { draw?: boolean; card_id?: string; custom_instruction?: string }) =>
-    fetch(`${BASE}/stories/${storyId}/decisions/${decisionNo}/stream`, {
+    fetch(`${BASE}/stories/${storyId}/decisions/${decisionNo}/stream`, authHeaders({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    })),
+
+  // ---------- 用户认证 ----------
+  register: (username: string, password: string) =>
+    req<{ token: string; username: string }>('/auth/register', {
+      method: 'POST', body: JSON.stringify({ username, password }),
     }),
+
+  login: (username: string, password: string) =>
+    req<{ token: string; username: string }>('/auth/login', {
+      method: 'POST', body: JSON.stringify({ username, password }),
+    }),
+
+  logout: async () => {
+    const token = getToken()
+    if (!token) return
+    await fetch(`${BASE}/auth/logout`, authHeaders({ method: 'POST' }))
+  },
+
+  me: () => req<{ username: string }>('/auth/me'),
 
   getModelsConfig: () => req<ModelsConfig>('/models/config'),
 

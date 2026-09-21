@@ -9,12 +9,14 @@ from app.llm.errors import LLMError, QuotaError
 
 app = FastAPI(title=settings.app_name, version=settings.version)
 
-# 开发期允许跨域（前端 dev server 5173；也可经 Vite proxy，双保险）
+# 跨域：仅放行配置的前端源（公共部署下前后端同域，留空即最严的禁止跨域）。
+# 开发期可经 Vite proxy 走同源，不强依赖 CORS。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,
 )
 
 

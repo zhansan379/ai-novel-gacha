@@ -53,6 +53,8 @@ class Chapter:
 class Story:
     id: str
     premise: str
+    # 归属用户：公网多用户隔离用，空串表示传统无主/本地数据
+    user_id: str = ""
     synopsis: str = ""
     # 简介出厂事实校验门结果：{checked, passed, issues, retries, ...}；空 dict = 老故事/未做校验。
     synopsis_checked: dict = field(default_factory=dict)

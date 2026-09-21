@@ -11,6 +11,11 @@ dependencies = [
     "chromadb>=1.5.9",
 ]
 
+# 公网部署建议安装 secure 组：加密落库模型 API Key（需设置 SECRET_KEY）。
+# 本地/可信内网不安装也不影响跑（回退明文存储）。
+[project.optional-dependencies]
+secure = ["cryptography>=42"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

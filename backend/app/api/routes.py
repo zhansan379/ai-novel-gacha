@@ -5,14 +5,16 @@ import asyncio
 import json
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, Header, HTTPException, Path
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
+from app.context import current_user_id
 from app.gacha import GachaEngine
 from app.llm.errors import LLMError
 from app.schemas import Card, CardLabel, CardPool, ChapterInfo, DirectionKind, DirectionSpec
 from app.services import registry
+from app.services.auth import AuthError, InvalidCredentials, UsernameTaken
 from app.services.story_service import chapter_to_info
 from app.services.store import DecisionLocked, Story, StoryNotFound
 
@@ -175,9 +177,37 @@ def _card_spec(card: Card) -> DirectionSpec:
 
 def decision_path(sid: str) -> Story:
     try:
-        return registry.story_service.get(sid)
+        story = registry.story_service.get(sid)
     except StoryNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "故事不存在"}) from exc
+    _ensure_owned(story)
+    return story
+
+
+def _ensure_owned(story: Story) -> None:
+    """归属校验：非本人故事一律按不存在处理（避免泄露他人书籍存在性）。"""
+    owner = story.user_id or ""
+    # user_id 为空的属迁移遗留的无主数据，任何已登录用户可读（兼容本地开发库）；
+    # 新建/导入的故事一律带真实 owner，走严格隔离。
+    if owner and owner != (current_user_id.get() or ""):
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "故事不存在"})
+
+
+async def get_current_user(authorization: str | None = Header(default=None)) -> str:
+    """鉴权依赖：校验 Bearer token，命中后把当前 user_id 写进 ContextVar 供全链路读取。
+
+    必须是 async（而非 sync）：sync 依赖在 worker 线程执行，其 contextvar.set 不会
+    传播到请求的 async 任务，导致网关取不到当前用户的模型配置。
+    """
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    uid = registry.auth.user_for_token(token) if token else None
+    if uid is None:
+        raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED",
+                                                     "message": "未登录或登录已过期，请重新登录"})
+    current_user_id.set(uid)
+    return uid
 
 
 def _decision_of(story: Story, no: int) -> object:
@@ -198,9 +228,60 @@ def _sse(name: str, data: dict) -> str:
     return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# ---------- 用户认证 ----------
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/auth/register", tags=["auth"])
+async def register(body: RegisterRequest):
+    """注册新用户，成功即返回登录 token（自动登录）。"""
+    try:
+        user_id = registry.auth.register(body.username, body.password)
+    except UsernameTaken as exc:
+        raise HTTPException(status_code=409, detail={"code": "USERNAME_TAKEN", "message": str(exc)}) from exc
+    except InvalidCredentials as exc:
+        raise HTTPException(status_code=422,
+                            detail={"code": "VALIDATION_ERROR", "message": str(exc)}) from exc
+    token = registry.auth.login(body.username, body.password)
+    return {"token": token, "username": body.username.strip()}
+
+
+@router.post("/auth/login", tags=["auth"])
+async def login(body: LoginRequest):
+    """登录，返回会话 token。"""
+    try:
+        token = registry.auth.login(body.username, body.password)
+    except InvalidCredentials as exc:
+        raise HTTPException(status_code=401,
+                            detail={"code": "INVALID_CREDENTIALS", "message": str(exc)}) from exc
+    return {"token": token, "username": body.username.strip()}
+
+
+@router.post("/auth/logout", tags=["auth"])
+async def logout(authorization: str | None = Header(default=None)):
+    """登出：使当前 token 失效。"""
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if token:
+        registry.auth.logout(token)
+    return {"ok": True}
+
+
+@router.get("/auth/me", tags=["auth"])
+async def me(user: str = Depends(get_current_user)):
+    """返回当前登录用户信息（同时校验 token 是否仍有效）。"""
+    return {"username": registry.auth.username_of(user)}
+
+
 # ---------- 端点 ----------
 @router.post("/stories", status_code=202, response_model=CreateTaskAccepted, tags=["story"])
-async def create_story(body: CreateStoryRequest):
+async def create_story(body: CreateStoryRequest, user: str = Depends(get_current_user)):
     """开书：提交即为后台异步任务，立即返回 task_id（penging）。
 
     完成后经 GET /v1/stories/tasks/{task_id} 轮询取 StoryCreated 结果；前端据此跳转。
@@ -214,7 +295,7 @@ async def create_story(body: CreateStoryRequest):
 
 
 @router.get("/stories/tasks/{task_id}", response_model=CreateTaskStatusResponse, tags=["story"])
-async def get_create_task(task_id: str):
+async def get_create_task(task_id: str, user: str = Depends(get_current_user)):
     """查询异步开书任务状态：status=pending/running/done/error；done 带 result，error 带 error。"""
     t = registry.tasks.get(task_id)
     if t is None:
@@ -225,12 +306,12 @@ async def get_create_task(task_id: str):
 
 
 @router.get("/stories", response_model=StoryList, tags=["story"])
-async def list_stories():
+async def list_stories(user: str = Depends(get_current_user)):
     return StoryList(stories=[StoryListItem(**item) for item in registry.story_service.list()])
 
 
 @router.post("/stories/import", status_code=201, tags=["story"])
-async def import_story(body: ImportStoryBody):
+async def import_story(body: ImportStoryBody, user: str = Depends(get_current_user)):
     if not body.snapshot.get("premise"):
         raise HTTPException(status_code=422, detail={"code": "BAD_SNAPSHOT", "message": "快照缺少 premise"})
     story = registry.story_service.import_snapshot(body.snapshot)
@@ -238,26 +319,27 @@ async def import_story(body: ImportStoryBody):
 
 
 @router.get("/stories/{sid}/export", tags=["story"])
-async def export_story(sid: str = Path(...)):
+async def export_story(sid: str = Path(...), user: str = Depends(get_current_user)):
     decision_path(sid)  # 不存在则 404
     return registry.story_service.export_snapshot(sid)
 
 
 @router.delete("/stories/{sid}", status_code=204, tags=["story"])
-async def delete_story(sid: str = Path(...)):
+async def delete_story(sid: str = Path(...), user: str = Depends(get_current_user)):
+    decision_path(sid)  # 归属校验 + 存在性：他人/不存在 → 404
     if not registry.story_service.delete(sid):
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "故事不存在"})
     return Response(status_code=204)
 
 
 @router.get("/styles", tags=["story"])
-async def list_styles():
+async def list_styles(user: str = Depends(get_current_user)):
     from app.services.styles import list_styles as _list
     return {"styles": _list()}
 
 
 @router.post("/styles/compare", tags=["style"])
-async def compare_styles(body: StyleCompareRequest):
+async def compare_styles(body: StyleCompareRequest, user: str = Depends(get_current_user)):
     """同一段素材，用若干文风各自改写生成，便于对比（真实调用 LLM）。"""
     from app.services.styles import STYLE_PROFILES, get_style
 
@@ -286,11 +368,11 @@ class ModelConfigRequest(BaseModel):
 
 
 @router.get("/models/config", tags=["config"])
-def get_model_config():
-    """读取当前模型接入状态（Key 脱敏，仅返回是否已设置）。"""
+def get_model_config(user: str = Depends(get_current_user)):
+    """读取当前登录用户的模型接入状态（Key 脱敏，仅返回是否已设置）。"""
     from app.services.keychain import default_base_url
     cfg = registry.gateway.resolve()
-    provider = cfg["provider"] if cfg else registry.gateway.settings.default_provider
+    provider = cfg["provider"] if cfg else "deepseek"
     base = cfg["base_url"] if cfg else default_base_url(provider)
     return {
         "provider": provider,
@@ -303,11 +385,11 @@ def get_model_config():
 
 
 @router.post("/models/config", tags=["config"])
-async def set_model_config(body: ModelConfigRequest):
-    """保存模型接入配置（持久化到 SQLite；Key 不回传明文）。"""
+async def set_model_config(body: ModelConfigRequest, user: str = Depends(get_current_user)):
+    """保存当前登录用户的模型接入配置（持久化到 SQLite；Key 加密落地且不回传明文）。"""
     from app.services.keychain import default_base_url
     base_url = body.base_url.strip() or default_base_url(body.provider.strip())
-    registry.keychain.save(provider=body.provider.strip(), model=body.model.strip(),
+    registry.keychain.save(user_id=user, provider=body.provider.strip(), model=body.model.strip(),
                            base_url=base_url, api_key=body.api_key.strip())
     cfg = registry.gateway.resolve()
     return {
@@ -318,14 +400,14 @@ async def set_model_config(body: ModelConfigRequest):
 
 
 @router.post("/models/config/clear", tags=["config"])
-async def clear_model_config():
-    """清空前端配置；此后未再配置时将报错提示接入模型。"""
-    registry.keychain.clear()
+async def clear_model_config(user: str = Depends(get_current_user)):
+    """清空当前登录用户的配置；此后未再配置时将报错提示接入模型。"""
+    registry.keychain.clear(user)
     return {"configured": False, "mode": registry.gateway.mode()}
 
 
 @router.get("/stories/{sid}", response_model=StorySummary, tags=["story"])
-async def get_story(sid: str = Path(...)):
+async def get_story(sid: str = Path(...), user: str = Depends(get_current_user)):
     story = decision_path(sid)
     return StorySummary(story_id=story.id, premise=story.premise, synopsis=story.synopsis,
                         passages=[p["content"] for p in story.passages],
@@ -337,7 +419,7 @@ async def get_story(sid: str = Path(...)):
 
 
 @router.get("/stories/{sid}/chapters", response_model=ChaptersResponse, tags=["chapter"])
-async def list_chapters(sid: str = Path(...)):
+async def list_chapters(sid: str = Path(...), user: str = Depends(get_current_user)):
     """章节目录：连同故事状态一起返回（前端目录/完结态用它）。"""
     story = decision_path(sid)
     return ChaptersResponse(story_id=story.id,
@@ -346,7 +428,8 @@ async def list_chapters(sid: str = Path(...)):
 
 
 @router.patch("/stories/{sid}/chapters/{no}", response_model=ChapterInfo, tags=["chapter"])
-async def rename_chapter(sid: str, no: int, body: ChapterRenameRequest):
+async def rename_chapter(sid: str, no: int, body: ChapterRenameRequest,
+                         user: str = Depends(get_current_user)):
     """修改章节标题（读者可改）。"""
     story = decision_path(sid)
     try:
@@ -356,7 +439,7 @@ async def rename_chapter(sid: str, no: int, body: ChapterRenameRequest):
 
 
 @router.post("/stories/{sid}/undo", tags=["story"])
-async def undo_last_step(sid: str = Path(...)):
+async def undo_last_step(sid: str = Path(...), user: str = Depends(get_current_user)):
     """撤销上一步：回退最后一段正文/时间线，解锁该决策并还原角色与伏笔快照。"""
     story = decision_path(sid)
     try:
@@ -367,14 +450,14 @@ async def undo_last_step(sid: str = Path(...)):
 
 
 @router.get("/stories/{sid}/timeline", tags=["story"])
-async def get_timeline(sid: str = Path(...)):
+async def get_timeline(sid: str = Path(...), user: str = Depends(get_current_user)):
     """剧情时间线（复盘账本）：逐决策追加的事件流；区别于世界历史线 world.history。"""
     story = decision_path(sid)
     return {"story_id": story.id, "timeline": story.timeline}
 
 
 @router.get("/stories/{sid}/blueprint", tags=["story"])
-async def get_blueprint(sid: str = Path(...)):
+async def get_blueprint(sid: str = Path(...), user: str = Depends(get_current_user)):
     """读取前置构建：世界观 / 历史线 / 角色 / 卷·章大纲。
 
     真实事实基座（grounding）与世界历史线做读时相关性过滤：只呈现书里点过名的
@@ -397,14 +480,15 @@ async def get_blueprint(sid: str = Path(...)):
 
 
 @router.get("/stories/{sid}/foreshadows", tags=["story"])
-async def get_foreshadows(sid: str = Path(...)):
+async def get_foreshadows(sid: str = Path(...), user: str = Depends(get_current_user)):
     """伏笔账本：已埋设 / 推进中 / 已兑现。"""
     story = decision_path(sid)
     return {"story_id": story.id, "foreshadows": story.foreshadows}
 
 
 @router.get("/stories/{sid}/decisions/{no}/cards", response_model=CardsResponse, tags=["decision"])
-async def get_cards(sid: str, no: int = Path(..., ge=1)):
+async def get_cards(sid: str, no: int = Path(..., ge=1),
+                    user: str = Depends(get_current_user)):
     story = decision_path(sid)
     d = _decision_of(story, no)
     # 卡池惰性生成（带当前叙事上下文/上拍悬念），幂等；不在正文流里预生成下一卡池
@@ -413,7 +497,8 @@ async def get_cards(sid: str, no: int = Path(..., ge=1)):
 
 
 @router.post("/stories/{sid}/decisions/{no}/gacha", response_model=DrawResponse, tags=["decision"])
-async def blind_draw(sid: str, no: int = Path(..., ge=1)):
+async def blind_draw(sid: str, no: int = Path(..., ge=1),
+                     user: str = Depends(get_current_user)):
     story = decision_path(sid)
     _ensure_active(story)
     d = _decision_of(story, no)
@@ -440,7 +525,8 @@ async def blind_draw(sid: str, no: int = Path(..., ge=1)):
 
 
 @router.post("/stories/{sid}/decisions/{no}/apply", response_model=ApplyResponse, tags=["decision"])
-async def apply_decision(sid: str, no: int, body: AppliesDecision):
+async def apply_decision(sid: str, no: int, body: AppliesDecision,
+                         user: str = Depends(get_current_user)):
     story = decision_path(sid)
     _ensure_active(story)
     d = _decision_of(story, no)
@@ -469,7 +555,7 @@ async def apply_decision(sid: str, no: int, body: AppliesDecision):
 
 
 @router.post("/stories/{sid}/passages/{np}/lint", response_model=dict, tags=["quality"])
-async def relint_passage(sid: str, np: int):
+async def relint_passage(sid: str, np: int, user: str = Depends(get_current_user)):
     """对某段已生成正文重新做去 AI 味 + 一致性质检。"""
     story = decision_path(sid)
     if not (1 <= np <= len(story.passages)):
@@ -482,7 +568,8 @@ async def relint_passage(sid: str, np: int):
 
 
 @router.post("/stories/{sid}/decisions/{no}/stream", tags=["decision"])
-async def stream_decision(sid: str, no: int, body: StreamDecision):
+async def stream_decision(sid: str, no: int, body: StreamDecision,
+                          user: str = Depends(get_current_user)):
     """SSE 流式：按 盲抽/明选/自由输入 之一锁定决策并流式生成正文。
 
     事件流：passage_start → delta* → passage_end{passage, lint, consistency,
@@ -517,6 +604,7 @@ async def stream_decision(sid: str, no: int, body: StreamDecision):
         raise HTTPException(status_code=409, detail={"code": "CONFLICT", "message": "该决策的正文已生成，请勿重复提交"})
 
     async def event_stream():
+        current_user_id.set(user)  # 流式分发可能在非请求上下文执行，显式恢复当前用户供 LLM 取 Key
         async for ev in gen:
             etype = ev["type"]
             if etype == "start":

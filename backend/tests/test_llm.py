@@ -1,11 +1,13 @@
 import pytest
 
 from app.config import Settings
+from app.context import current_user_id
 from app.llm import LLMGateway
 from app.llm.errors import ModelError
 from app.schemas import DirectionKind
 from app.services.blueprint import BlueprintBuilder
 from app.services.direction import DirectionGenerator
+from app.services.keychain import Keychain
 from app.services.narrative import NarrativeUpdater
 
 
@@ -34,9 +36,21 @@ async def test_gateway_unconfigured_raises():
         await gw.complete(task="init", system="s", user="u")
 
 
-def test_gateway_real_mode_when_key_present():
-    gw = LLMGateway(Settings(default_provider="deepseek", api_keys={"deepseek": "sk-x"}))
+def test_gateway_real_mode_when_key_present(tmp_path):
+    """公网 BYOK：模型 Key 只来自"当前用户"的 Keychain，不再有全局 env 兜底。"""
+    kc = Keychain(str(tmp_path / "kc.db"))
+    kc.save(user_id="alice", provider="deepseek", model="deepseek-chat",
+            api_key="sk-x", base_url="https://api.deepseek.com/v1")
+    gw = LLMGateway(Settings(api_keys={}, _env_file=None), keychain=kc)
+
+    # 未设置当前用户：即使 env 有 key 也不生效（隔离）
+    current_user_id.set(None)
+    assert gw.mode() == "unconfigured"
+
+    # 命中 alice 的 keychain → 真实模式
+    current_user_id.set("alice")
     assert gw.mode() == "openai-compat"
+    assert gw.resolve()["api_key"] == "sk-x"
 
 
 @pytest.mark.anyio

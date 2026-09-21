@@ -1,12 +1,14 @@
-"""LLM Gateway：按提供商/密钥调度到 OpenAI 兼容实现。
+"""LLM Gateway：按当前用户/提供商调度到 OpenAI 兼容实现。
 
-配置来源：Keychain 运行时配置（前端可设）> 环境变量/.env（settings）。
-未配置任何模型时不再回退 mock，而是抛出明确错误，提示用户在设置面板完成接入。
+配置来源：该用户在前端"设置面板"所配的 Keychain（Key 按用户隔离，且不回传明文）。
+不再回退到全局 env 配置——公网多用户 BYOK 场景下，每个用户必须用自己的 Key，
+否则会互相共享管理员 Key。未配置时抛出明确错误，提示用户先完成接入。
 消费方只调用 `gateway.complete(task, system, user)` / `gateway.stream(...)`，不感知具体实现。
 """
 from __future__ import annotations
 
 from app.config import Settings
+from app.context import current_user_id
 from app.llm.errors import ModelError
 from app.llm.routing import Route, route_for
 from app.services.keychain import Keychain
@@ -27,19 +29,9 @@ class LLMGateway:
         return route_for(task)
 
     def resolve(self) -> dict | None:
-        """返回当前生效配置 {provider,api_key,model,base_url}；无则返回 None（未接入模型）。"""
+        """返回当前用户在设置面板配置的 {provider,api_key,model,base_url}；无则返回 None。"""
         if self._keychain:
-            r = self._keychain.current()
-            if r:
-                return r
-        p = self.settings.default_provider
-        key = self.settings.api_keys.get(p)
-        if key:
-            return {
-                "provider": p, "api_key": key,
-                "model": self.settings.default_model,
-                "base_url": self.settings.base_urls.get(p, self.settings.openai_compat_base_url),
-            }
+            return self._keychain.current(current_user_id.get() or "")
         return None
 
     def mode(self) -> str:

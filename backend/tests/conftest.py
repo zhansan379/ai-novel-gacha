@@ -1,10 +1,17 @@
 """测试级数据库隔离：每个测试用独立的临时 SQLite DB，避免污染开发数据。"""
 import pytest
 
+from app.context import current_user_id
+from app.main import app as fastapi_app
+from app.api.routes import get_current_user
 from app.services import registry
+from app.services.auth import AuthManager
 from app.services.grounding import WebSearch
 from app.services.keychain import Keychain
 from app.storage.sqlite import SQLiteStore
+
+# 测试默认登录用户（DDL 后注入到独立 auth 库）
+_TEST_USER = "tester"
 
 
 @pytest.fixture(autouse=True)
@@ -24,3 +31,25 @@ def _fresh_store(tmp_path):
     yield
     store.close()
     keychain.close()
+
+
+@pytest.fixture(autouse=True)
+def _auth_probe(tmp_path):
+    """注入一个测试用户并覆盖鉴权依赖：既有集成测试无需逐一带 token 即可通过。
+
+    归属/鉴权本身的真实验证由 tests/test_auth.py 用真实 token 单独覆盖。
+    """
+    auth = AuthManager(str(tmp_path / "auth.db"))
+    registry.auth = auth
+    user_id = auth.register(_TEST_USER, "secret123")
+    # 测试体内直接 gateway.resolve() 也应能读到当前用户（不只请求内）
+    current_user_id.set(user_id)
+
+    async def _probe():
+        current_user_id.set(user_id)
+        return user_id
+
+    fastapi_app.dependency_overrides[get_current_user] = _probe
+    yield
+    fastapi_app.dependency_overrides.pop(get_current_user, None)
+    auth.close()

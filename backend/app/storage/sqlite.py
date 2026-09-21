@@ -19,6 +19,7 @@ from app.services.store import Chapter, Decision, Story, StoryNotFound
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS stories (
     id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT '',
     premise TEXT NOT NULL,
     synopsis TEXT NOT NULL DEFAULT '',
     next_decision_no INTEGER NOT NULL DEFAULT 1,
@@ -154,13 +155,20 @@ class SQLiteStore:
         self._migrate()
 
     def _migrate(self) -> None:
-        """轻量列迁移：为既有库补充 blueprint_json / decisions.rollback_json。"""
+        """轻量列迁移：为既有库补充 blueprint_json / decisions.rollback_json / stories.user_id。"""
         with self._lock:
             cols = [r[1] for r in self._conn.execute("PRAGMA table_info(stories)").fetchall()]
             if "blueprint_json" not in cols:
                 self._conn.execute("ALTER TABLE stories ADD COLUMN blueprint_json TEXT")
             if "status" not in cols:
                 self._conn.execute("ALTER TABLE stories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            if "user_id" not in cols:
+                self._conn.execute("ALTER TABLE stories ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
+            chcols = [r[1] for r in self._conn.execute("PRAGMA table_info(chapters)").fetchall()]
+            if "summary" not in chcols:
+                self._conn.execute("ALTER TABLE chapters ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
+            if "status" not in chcols:
+                self._conn.execute("ALTER TABLE chapters ADD COLUMN status TEXT NOT NULL DEFAULT 'closed'")
             dcols = [r[1] for r in self._conn.execute("PRAGMA table_info(decisions)").fetchall()]
             if "rollback_json" not in dcols:
                 self._conn.execute("ALTER TABLE decisions ADD COLUMN rollback_json TEXT")
@@ -186,13 +194,14 @@ class SQLiteStore:
     def save(self, story: Story) -> Story:
         with self._lock:
             self._conn.execute(
-                """INSERT INTO stories(id,premise,synopsis,next_decision_no,blueprint_json,status)
-                   VALUES(?,?,?,?,?,?)
-                   ON CONFLICT(id) DO UPDATE SET premise=excluded.premise,
-                     synopsis=excluded.synopsis, next_decision_no=excluded.next_decision_no,
+                """INSERT INTO stories(id,user_id,premise,synopsis,next_decision_no,blueprint_json,status)
+                   VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,
+                     premise=excluded.premise, synopsis=excluded.synopsis,
+                     next_decision_no=excluded.next_decision_no,
                      blueprint_json=excluded.blueprint_json, status=excluded.status""",
-                (story.id, story.premise, story.synopsis, story.next_decision_no,
-                 _blueprint_json(story), story.status),
+                (story.id, story.user_id or "", story.premise, story.synopsis,
+                 story.next_decision_no, _blueprint_json(story), story.status),
             )
             self._conn.execute("DELETE FROM passages WHERE story_id=?", (story.id,))
             self._conn.executemany(
@@ -232,6 +241,7 @@ class SQLiteStore:
             ).fetchall()
             story = Story(
                 id=row["id"], premise=row["premise"], synopsis=row["synopsis"],
+                user_id=row["user_id"] or "",
                 next_decision_no=row["next_decision_no"], status=row["status"] or "active",
                 passages=[{"no": p["no"], "decision_no": p["decision_no"], "content": p["content"]}
                           for p in passages],
@@ -244,12 +254,13 @@ class SQLiteStore:
             self._cache[story_id] = story
             return story
 
-    def list(self) -> list[dict]:
-        """返回全部故事的精简概览（书架用），按创建先后倒序。"""
+    def list(self, user_id: str = "") -> list[dict]:
+        """返回某用户故事的精简概览（书架用），按创建先后倒序。"""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT rowid AS rid, id, premise, synopsis, next_decision_no, status "
-                "FROM stories ORDER BY rid DESC",
+                "FROM stories WHERE user_id=? ORDER BY rid DESC",
+                (user_id,),
             ).fetchall()
             return [
                 {
@@ -310,11 +321,12 @@ class SQLiteStore:
             self._conn.commit()
             return cur.rowcount > 0
 
-    def import_snapshot(self, data: dict) -> Story:
-        """从快照重建一本新故事（分配新 id，避免覆盖既有同 id 书籍）。"""
+    def import_snapshot(self, data: dict, user_id: str = "") -> Story:
+        """从快照重建一本新故事（分配新 id，避免覆盖既有同 id 书籍），归属 user_id。"""
         with self._lock:
             story = Story(
                 id=str(uuid.uuid4()),
+                user_id=user_id or "",
                 premise=data.get("premise", ""),
                 synopsis=data.get("synopsis", "") or "",
                 passages=[

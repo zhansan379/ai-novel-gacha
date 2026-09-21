@@ -7,6 +7,7 @@ import uuid
 
 from app.consistency.checker import ConsistencyChecker
 from app.config import settings
+from app.context import current_user_id
 from app.deslop import scan as deslop_scan
 from app.llm import LLMGateway
 from app.schemas import Card, DirectionKind, DirectionSpec
@@ -147,7 +148,8 @@ class StoryService:
         on_stage: 可选阶段回调（如 `async def on_stage(stage: str)`），供异步任务上报真实进度。
         """
         on_stage = on_stage if callable(on_stage) else (lambda _stage: None)
-        story = Story(id=str(uuid.uuid4()), premise=premise)
+        story = Story(id=str(uuid.uuid4()), premise=premise,
+                      user_id=current_user_id.get() or "")
 
         # 真实信息先行：知识库召回 + 画像判定 + 网络预取，合成一份「完整真实上下文」。
         # 它既是简介生成的输入，也是全书蓝图与正文共享的 story.grounding（不再在 fanout 里重算）。
@@ -394,14 +396,14 @@ class StoryService:
         return self._store.get(story_id)
 
     def list(self) -> list[dict]:
-        """返回全部故事的精简概览（书架用）。"""
-        return self._store.list()
+        """返回当前用户故事的精简概览（书架用）。"""
+        return self._store.list(current_user_id.get() or "")
 
     def export_snapshot(self, story_id: str) -> dict:
         return self._store.snapshot(story_id)
 
     def import_snapshot(self, data: dict) -> Story:
-        return self._store.import_snapshot(data)
+        return self._store.import_snapshot(data, current_user_id.get() or "")
 
     def delete(self, story_id: str) -> bool:
         return self._store.delete(story_id)

@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     app_name: str = "AI Novel Gacha"
     version: str = "0.1.0"
 
+    # 服务端机密：用于加密库中保存的模型 API Key（对称）。公网部署必须设置，
+    # 且与模型 Key 分开保管；未设置时回退明文存储（仅限可信内网/本机）。
+    secret_key: str = r""
+
+    # 允许跨域的前端源（CORS）。公共部署下前后端同域（经反代），留空即为最严：
+    # 不允许任何跨域请求（限同源）。仅在前端与 API 不同域时才需填写。
+    cors_origins: list[str] = []
+
     # 模型接入（BYOK）：由用户自行配置，走 OpenAI 兼容协议
     default_provider: str = "deepseek"
     default_model: str = "deepseek-chat"

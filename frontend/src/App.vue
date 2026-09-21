@@ -3,16 +3,23 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ReadingSettingsPanel from './components/ReadingSettingsPanel.vue'
+import { useAuthStore } from './stores/auth'
 import { useDecisionStore } from './stores/decision'
 import { useReadingStore } from './stores/reading'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const store = useDecisionStore()
 const rstore = useReadingStore() // 实例化即应用阅读主题/字体/字号/宽度
 
 const settingsOpen = ref(false)
 const readingOpen = ref(false)
+
+function logout() {
+  void auth.logout()
+  void router.push({ name: 'login' })
+}
 
 // "世界观 / 抽卡"是阅读页专属动作：抽卡浮层只在阅读页挂载，世界观页点击会空转，
 // 世界观按钮也就是当前页重载，因此在世界观页不再展示这两项。
@@ -137,6 +144,11 @@ function scrollTop() {
           </svg>
           <span class="rail-label">顶部</span>
         </button>
+
+        <div class="rail-user" :title="`当前用户：${auth.username}`">
+          <span class="avatar">{{ (auth.username || '?').slice(0, 1).toUpperCase() }}</span>
+          <button class="rail-link" @click="logout">登出</button>
+        </div>
       </aside>
     </div>
 
@@ -205,6 +217,34 @@ function scrollTop() {
 .rail-label {
   font-size: 11px;
 }
+.rail-user {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+.rail-link {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+.rail-link:hover { color: var(--danger, #b91c1c); }
 
 @media (max-width: 720px) {
   .app-shell {
