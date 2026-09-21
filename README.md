@@ -8,13 +8,22 @@
 
 ## 截图展示
 
-（这里放截图，先把图片放到 `docs/screenshots/` 再替换下面几行）
-
 - 开书 / 书架页
+<img width="2309" height="1203" alt="image" src="https://github.com/user-attachments/assets/ecaad38c-57f5-4976-b7b8-559a851dd998" />
+
 - 抽卡 / 剧情决策界面
+<img width="2318" height="1203" alt="image" src="https://github.com/user-attachments/assets/deb75c64-3dae-4af7-8653-07191d2e74ff" />
+
 - 正文阅读页（翻页模式）
+<img width="2492" height="1203" alt="image" src="https://github.com/user-attachments/assets/fca24740-ff7e-4b9e-9e01-7a4f9acb3f54" />
+
 - 世界观 / 人物 / 关系图谱页
+<img width="2251" height="1203" alt="image" src="https://github.com/user-attachments/assets/57665be8-7498-4d4c-a406-ba2f8e83ef9e" />
+<img width="2247" height="1203" alt="image" src="https://github.com/user-attachments/assets/6c2ba17b-ebb8-49bf-bed1-e3fba1dbad01" />
+
 - 题材卡浏览或模型设置面板
+<img width="2223" height="1203" alt="image" src="https://github.com/user-attachments/assets/6b9eae86-04de-485a-8b7b-23e1ba7bb84c" />
+
 
 ---
 
