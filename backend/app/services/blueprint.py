@@ -22,8 +22,12 @@ relationships：角色与角色、角色与势力之间彼此已知的初步关�
 伏笔种子必须由你根据本故事的前提与简介自行拟定，紧扣故事内核（人物过往、阵营秘密、
 关键物证、悬念关系等），禁止照抄提示词里的例子。
 
-严格只输出一个 JSON 对象，不要 Markdown、不要解释，按以下字段结构（示例值请用 … 占位，
-不要照抄为具体内容）：
+严格只输出一个 JSON（切片调用按各自要求输出对象或数组），不要 Markdown、不要解释、不要套多余的外壳。
+"""
+
+# 仅 legacy 单次复合调用（build）使用：整本蓝图一个 JSON 对象，各字段在顶层键下。
+# 不放进 _BLUEPRINT_SYSTEM，避免共享示例里的嵌套 "world" 键带偏所有切片的扁平输出。
+_BLUEPRINT_LEGACY_SCHEMA = """按以下字段结构（示例值请用 … 占位，不要照抄为具体内容）：
 {
   "world": {"rules": ["…"], "geography": "…", "power_system": "…",
             "factions": ["…"], "constraints": ["…"]},
@@ -86,9 +90,10 @@ class BlueprintBuilder:
 
     async def build(self, *, premise: str, synopsis: str, grounding: str = "") -> dict:
         """单次复合调用（legacy 回退路径）。"""
-        raw = await self._gateway.complete(task="blueprint", system=_BLUEPRINT_SYSTEM,
-                                           user=f"{_seed_grounding(grounding)}【前提】{premise}\n【简介】{synopsis}\n"
-                                                f"请输出复合蓝图 JSON：")
+        raw = await self._gateway.complete(
+            task="blueprint", system=_BLUEPRINT_SYSTEM + _BLUEPRINT_LEGACY_SCHEMA,
+            user=f"{_seed_grounding(grounding)}【前提】{premise}\n【简介】{synopsis}\n"
+                 f"请输出复合蓝图 JSON：")
         return _parse_blueprint(raw)
 
     # ---------------- 分段并行构建（book_fanout=True） ----------------

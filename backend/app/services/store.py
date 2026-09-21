@@ -12,6 +12,26 @@ class StoryNotFound(KeyError):
     pass
 
 
+def flatten_world(world):
+    """把可能被模型多包一层的世界观细节解套到顶层。
+
+    蓝图的 world 正常形如 {rules, geography, power_system, constraints, factions}；
+    但模型偶尔会在细节切片里多包一层 {"world": {...}}，使 detail 键落在内层、
+    顶层只剩骨架合并的 factions，导致前端除「势力」外全空。这里把内层 detail 升到顶层，
+    保留顶层既有字段（如 factions），并让 routes / store / 落库统一走这一处防重复。
+    """
+    if not isinstance(world, dict):
+        return world
+    detail = ("rules", "geography", "power_system", "constraints")
+    inner = world.get("world")
+    if isinstance(inner, dict) and not any(k in world for k in detail):
+        out = {k: v for k, v in world.items() if k != "world"}
+        for k, v in inner.items():
+            out.setdefault(k, v)
+        return out
+    return world
+
+
 class DecisionLocked(ValueError):
     pass
 

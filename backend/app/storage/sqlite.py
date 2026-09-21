@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 from app.schemas import Card, DirectionSpec
-from app.services.store import Chapter, Decision, Story, StoryNotFound
+from app.services.store import Chapter, Decision, Story, StoryNotFound, flatten_world
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS stories (
@@ -131,7 +131,7 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
     except json.JSONDecodeError:
         return
     if isinstance(data, dict):
-        story.world = data.get("world") or {}
+        story.world = flatten_world(data.get("world") or {})
         story.history = data.get("history") or []
         story.characters = data.get("characters") or []
         story.foreshadows = data.get("foreshadows") or []

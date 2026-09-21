@@ -16,7 +16,7 @@ from app.schemas import Card, CardLabel, CardPool, ChapterInfo, DirectionKind, D
 from app.services import registry
 from app.services.auth import AuthError, InvalidCredentials, UsernameTaken
 from app.services.story_service import chapter_to_info
-from app.services.store import DecisionLocked, Story, StoryNotFound
+from app.services.store import DecisionLocked, Story, StoryNotFound, flatten_world
 
 router = APIRouter(prefix="/v1")
 
@@ -469,7 +469,7 @@ async def get_blueprint(sid: str = Path(...), user: str = Depends(get_current_us
     storyline = f"{story.premise}\n{story.synopsis}"
     return {
         "story_id": story.id,
-        "world": story.world,
+        "world": flatten_world(story.world),
         "history": filter_real_entity_history(storyline, story.history),
         "characters": story.characters,
         "style": story.style_profile_id,

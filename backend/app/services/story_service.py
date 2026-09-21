@@ -20,7 +20,7 @@ from app.services.jsonparse import loads_coerce
 from app.services.narrative import NarrativeUpdater
 from app.services.progression import ProgressionService
 from app.services.retrieval import ProfileDeterminer, RetrievalProfile, prefetch
-from app.services.store import Story, StoryStore
+from app.services.store import Story, StoryStore, flatten_world
 from app.services.styles import DEFAULT_STYLE_ID, get_style, match_style_id, style_choice_text
 from app.services.writer import WriterAgent
 
@@ -277,7 +277,7 @@ class StoryService:
             premise=premise, synopsis=synopsis,
             grounding=grounding_txt,
         )
-        story.world = bp.get("world") or {}
+        story.world = flatten_world(bp.get("world") or {})
         story.history = bp.get("history") or []
         story.characters = bp.get("characters") or []
         story.foreshadows = init_foreshadows(bp.get("foreshadow_seeds") or [])
@@ -331,7 +331,7 @@ class StoryService:
             premise=premise, synopsis=synopsis, grounding=grounding_txt, skeleton=skeleton))
         world, history, characters, foreshadow_seeds = await asyncio.gather(
             world_task, history_task, chars_task, fs_task)
-        story.world = world or {}
+        story.world = flatten_world(world or {})
         story.world.setdefault("factions", skeleton.get("factions") or [])
         story.history = history or []
         story.characters = characters or []
