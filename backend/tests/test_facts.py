@@ -1,5 +1,39 @@
 from app.services.facts import build_facts, build_narrative_context, init_foreshadows
-from app.services.store import Story
+from app.services.store import Story, normalize_factions
+
+
+def test_normalize_factions_mixed_and_dirty():
+    # 新版对象 + 旧版字符串 + 缺 name 的脏项混用：统一归一到 [{name, description}]
+    mixed = [
+        {"name": "守刻人", "description": "守卫旧城记忆的秘教"},
+        "旧字",
+        {"name": ""},
+        {"name": "无名帮", "description": "雾海走私团伙"},
+        None,
+    ]
+    assert normalize_factions(mixed) == [
+        {"name": "守刻人", "description": "守卫旧城记忆的秘教"},
+        {"name": "旧字", "description": ""},
+        {"name": "无名帮", "description": "雾海走私团伙"},
+    ]
+    assert normalize_factions(None) == []
+    assert normalize_factions([]) == []
+
+
+def test_factions_in_context_and_facts_legacy_string_and_object():
+    story = Story(id="s", premise="p", synopsis="s", characters=[
+        {"name": "主角", "role": "protagonist", "goal": "找回记忆"},
+    ])
+    story.world = {"rules": ["刻印不可逆"], "factions": [
+        {"name": "守刻人", "description": "秘教"},
+        "旧字",  # 存量字符串仍兼容
+    ]}
+    ctx = build_narrative_context(story)
+    assert "势力「守刻人」：秘教" in ctx
+    assert "势力「旧字」" in ctx
+    facts = "\n".join(build_facts(story))
+    assert "势力：守刻人——秘教" in facts
+    assert "势力：旧字" in facts
 
 
 def test_init_foreshadows_dedupes_and_filters_empty():

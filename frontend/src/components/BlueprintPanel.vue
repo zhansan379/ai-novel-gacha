@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
 import CollapsePanel from './CollapsePanel.vue'
-import type { Blueprint, StyleProfile, TimelineEvent } from '../types'
+import type { Blueprint, Faction, StyleProfile, TimelineEvent } from '../types'
 
 const props = defineProps<{ storyId: string }>()
 const bp = ref<Blueprint | null>(null)
@@ -10,6 +10,10 @@ const styles = ref<StyleProfile[]>([])
 const timeline = ref<TimelineEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+/** 势力归一：兼容旧版纯名字数组与新版 {name, description} 对象。 */
+const normalFactions = (factions?: Array<Faction | string>): Faction[] =>
+  (factions ?? []).map((f) => (typeof f === 'string' ? { name: f, description: '' } : f))
 
 const styleName = (id?: string) => {
   if (!id) return ''
@@ -52,7 +56,12 @@ onMounted(async () => {
         <p v-if="bp.world.rules?.length" class="row">
           <b>规则：</b><span v-for="(r, i) in bp.world.rules" :key="i" class="chip">{{ r }}</span>
         </p>
-        <p v-if="bp.world.factions?.length" class="row"><b>势力：</b>{{ bp.world.factions.join('、') }}</p>
+        <p v-if="bp.world.factions?.length" class="row">
+          <b>势力：</b>
+          <span v-for="(f, i) in normalFactions(bp.world.factions)" :key="i" class="chip">
+            {{ f.description ? `${f.name}·${f.description}` : f.name }}
+          </span>
+        </p>
         <p v-if="bp.world.constraints?.length" class="row"><b>限制：</b>{{ bp.world.constraints.join('；') }}</p>
         <p v-if="!bp.world.geography && !bp.world.rules?.length" class="muted">暂无世界观设定</p>
       </CollapsePanel>
@@ -77,6 +86,15 @@ onMounted(async () => {
           <div v-if="c.flaw">缺点：{{ c.flaw }}</div>
           <div v-if="c.trait" class="muted">特征：{{ c.trait }}</div>
           <div v-if="c.moves?.length" class="moves">动向：{{ c.moves.join(' → ') }}</div>
+        </div>
+      </CollapsePanel>
+
+      <CollapsePanel v-if="bp.appearances?.length" class="blk" :title="`出场人物（${bp.appearances.length}）`">
+        <template #hint>· 正文中出现、但尚未成为主要角色的名字</template>
+        <div class="appears">
+          <span v-for="(a, i) in bp.appearances" :key="i" class="appear-chip">
+            {{ a.name }}<i v-if="(a.count ?? 1) > 1" class="cnt">×{{ a.count }}</i>
+          </span>
         </div>
       </CollapsePanel>
 
@@ -161,6 +179,27 @@ li {
   padding: 6px;
   background: #fff;
   border-radius: 6px;
+}
+.appears {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.appear-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  background: #f5f5f4;
+  border-radius: 12px;
+  padding: 2px 10px;
+  color: #57534e;
+  font-size: 13px;
+}
+.appear-chip .cnt {
+  font-style: normal;
+  color: #a8a29e;
+  font-size: 11px;
 }
 .moves {
   color: #047857;

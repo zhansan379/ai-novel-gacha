@@ -12,6 +12,29 @@ class StoryNotFound(KeyError):
     pass
 
 
+def normalize_factions(factions):
+    """把 world.factions 归一到 [{name, description}]，容纳字符串(old)与 {name, description} 两种形态。
+
+    新版骨架让模型输出带描述的势力对象；存量数据仍是纯名字数组。统一在此归一，
+    下游（关系账本匹配、生成上下文、QA 事实清单、前端展示）只消费 name / description。
+    无法识别项（缺 name 的空 dict 等）静默丢弃。
+    """
+    out = []
+    for f in factions or []:
+        if isinstance(f, str):
+            if f.strip():
+                out.append({"name": f, "description": ""})
+        elif isinstance(f, dict) and isinstance(f.get("name"), str) and f["name"].strip():
+            desc = f.get("description")
+            out.append({"name": f["name"], "description": desc if isinstance(desc, str) else ""})
+    return out
+
+
+def faction_names(factions) -> list[str]:
+    """势力名数组（无论势力以字符串还是对象存储都能取出）。"""
+    return [f["name"] for f in normalize_factions(factions)]
+
+
 def flatten_world(world):
     """把可能被模型多包一层的世界观细节解套到顶层。
 
@@ -85,6 +108,10 @@ class Story:
     world: dict = field(default_factory=dict)
     history: list = field(default_factory=list)
     characters: list = field(default_factory=list)
+    # 出场人物账本：正文里被识别到、但尚未成为正式角色的名字，[{name, count, first_no}]。
+    # 与 characters 的关系：characters 是"主要/正式角色"（进知识图谱、注入生成上下文），
+    # appearances 记录"正文里有名有姓但还没升格"的过场人物；同一名字不会两边同时存在。
+    appearances: list = field(default_factory=list)
     style_profile_id: str = "restrained"
     # 伏笔账本：[{id, text, origin, status: planted|advanced|paid_off}]
     foreshadows: list = field(default_factory=list)
@@ -194,7 +221,7 @@ class StoryStore:
                 for d in story.decisions.values()
             ],
             "world": story.world, "history": story.history, "characters": story.characters,
-            "foreshadows": story.foreshadows, "relations": story.relations,
+            "appearances": story.appearances, "foreshadows": story.foreshadows, "relations": story.relations,
             "timeline": story.timeline, "grounding": story.grounding,
             "retrieval_profile": story.retrieval_profile,
             "genre": story.genre or (story.retrieval_profile or {}).get("genre", ""),
@@ -227,6 +254,7 @@ class StoryStore:
             world=data.get("world") or {},
             history=data.get("history") or [],
             characters=data.get("characters") or [],
+            appearances=data.get("appearances") or [],
             style_profile_id=data.get("style_profile_id") or "restrained",
             foreshadows=data.get("foreshadows") or [],
             relations=data.get("relations") or [],

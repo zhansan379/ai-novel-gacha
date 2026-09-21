@@ -12,6 +12,7 @@ from app.llm import LLMGateway
 from app.llm.errors import ModelError
 from app.services.genre import genre_constraint_text, resolve_genres, structure_hint
 from app.services.jsonparse import loads_coerce
+from app.services.store import faction_names, normalize_factions
 
 _BLUEPRINT_SYSTEM = """你是小说世界构建师。基于「前提 + 简介」，产出结构化设定：
 世界观（简洁，只写与故事相关的部分）、历史线（过去的重大事件与成因）、
@@ -30,7 +31,7 @@ relationships：角色与角色、角色与势力之间彼此已知的初步关�
 _BLUEPRINT_LEGACY_SCHEMA = """按以下字段结构（示例值请用 … 占位，不要照抄为具体内容）：
 {
   "world": {"rules": ["…"], "geography": "…", "power_system": "…",
-            "factions": ["…"], "constraints": ["…"]},
+            "factions": [{"name":"…","description":"势力一句话定位"}], "constraints": ["…"]},
   "history": [{"era": "…", "event": "…", "impact": "…"}],
   "characters": [{"name":"…","role":"protagonist|supporter","goal":"外在目标",
                   "inner_need":"内在需求","flaw":"缺点","trait":"一句话特征"}],
@@ -103,13 +104,14 @@ class BlueprintBuilder:
 
         输出一个小 JSON：era（时代/年代基调一句）、world_tone（基调一句）、
         geography_brief（地理梗概一句）、power_system_brief（力量体系梗概一句）、
-        factions（势力名数组）、protagonist_anchor（主角一句话定位）。
+        factions（势力数组，每项含 name 与一句话 description）、protagonist_anchor（主角一句话定位）。
         """
         system = (
             _BLUEPRINT_SYSTEM + "\n本次先输出「世界观骨架锚点」，供后续并行细化共同对齐。"
             "严格只输出一个 JSON 对象，字段仅限："
             '{"era":"…","world_tone":"…","geography_brief":"…","power_system_brief":"…",'
-            '"factions":["…"],"protagonist_anchor":"…"}。不要输出其他字段。'
+            '"factions":[{"name":"…","description":"势力一句话定位（立场/样子/宗旨）"}],'
+            '"protagonist_anchor":"…"}。不要输出其他字段。'
         )
         raw = await self._gateway.complete(task="blueprint_skeleton", system=system,
                                            user=f"{_seed_grounding(grounding)}【前提】{premise}\n"
@@ -169,6 +171,11 @@ class BlueprintBuilder:
                                       "a/b 应涵盖所给角色名与势力名。没有可确定关系时给空数组。")
         user = _blueprint_user(premise, synopsis, grounding, skeleton, "请输出关系账本 JSON 数组：") + (
             f"\n已知角色：\n{chars}" if chars else "")
+        factions = normalize_factions(skeleton.get("factions") if skeleton else None)
+        if factions:
+            desc_lines = "\n".join(f"- 势力「{f['name']}」：{f['description']}" for f in factions if f["description"])
+            if desc_lines:
+                user += f"\n已知势力及其定位：\n{desc_lines}"
         raw = await self._gateway.complete(task="blueprint_relationships", system=system, user=user)
         return _expect_list(raw)
 
@@ -180,7 +187,7 @@ def _blueprint_user(premise: str, synopsis: str, grounding: str,
         "【世界观骨架（须对齐）】"
         f"时代：{sk.get('era', '')}；基调：{sk.get('world_tone', '')}；"
         f"地理：{sk.get('geography_brief', '')}；力量体系：{sk.get('power_system_brief', '')}；"
-        f"势力：{'、'.join(sk.get('factions') or [])}；主角定位：{sk.get('protagonist_anchor', '')}。"
+        f"势力：{'、'.join(faction_names(sk.get('factions')))}；主角定位：{sk.get('protagonist_anchor', '')}。"
     ) if skeleton else ""
     genre_block = _genre_block(premise)
     struct_hint = _structure_hint(premise)

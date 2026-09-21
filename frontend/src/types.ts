@@ -193,11 +193,16 @@ export interface TimelineEvent {
 export interface TimelineResponse { story_id: string; timeline: TimelineEvent[] }
 
 // ---- 前置构建蓝图 ----
+export interface Faction {
+  name: string
+  description?: string
+}
 export interface WorldSetting {
   rules?: string[]
   geography?: string
   power_system?: string
-  factions?: string[]
+  /** 兼容旧版纯名字数组：每项可能是 string(旧) 或 {name, description}(新)。 */
+  factions?: Array<Faction | string>
   constraints?: string[]
 }
 export interface HistoryEvent { era: string; event: string; impact: string }
@@ -207,11 +212,13 @@ export interface CharacterCard {
 }
 export interface ForeshadowItem { id: string; text: string; origin: string; status: 'planted' | 'advanced' | 'paid_off' }
 export interface RelationEdge { a: string; b: string; label?: string; note?: string }
+export interface AppearanceItem { name: string; count: number; first_no?: number }
 export interface Blueprint {
   story_id: string
   world: WorldSetting
   history: HistoryEvent[]
   characters: CharacterCard[]
+  appearances?: AppearanceItem[]
   style?: string
   foreshadows?: ForeshadowItem[]
   relations?: RelationEdge[]

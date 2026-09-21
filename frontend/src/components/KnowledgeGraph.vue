@@ -6,7 +6,7 @@ import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { api } from '../api/client'
 import type { ECharts } from 'echarts/core'
-import type { Blueprint } from '../types'
+import type { Blueprint, Faction } from '../types'
 
 echarts.use([GraphChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -29,11 +29,17 @@ const CATEGORIES = [
   { name: '其他', itemStyle: { color: '#047857' } },
 ]
 
+/** 势力归一：兼容旧版纯名字数组与新版 {name, description} 对象。 */
+function normalFactions(bp: Blueprint): Faction[] {
+  return (bp.world.factions ?? []).map((f) =>
+    (typeof f === 'string' ? { name: f, description: '' } : f))
+}
+
 /** 抽取关系图谱涉及的实体集合（角色 + 势力 + 关系边里出现的新名字）。 */
 function collectNodes(bp: Blueprint) {
   const names = new Set<string>()
   for (const c of bp.characters) if (c.name) names.add(c.name)
-  const factions = new Set<string>(bp.world.factions ?? [])
+  const factions = new Set<string>(normalFactions(bp).map((f) => f.name))
   for (const r of bp.relations ?? []) if (r.a) names.add(r.a)
   for (const r of bp.relations ?? []) if (r.b) names.add(r.b)
   return { names, factions }
@@ -41,10 +47,12 @@ function collectNodes(bp: Blueprint) {
 
 function buildOption(bp: Blueprint) {
   const { names, factions } = collectNodes(bp)
+  const descMap = new Map(normalFactions(bp).filter((f) => f.description).map((f) => [f.name, f.description as string]))
   const nodes = Array.from(names).map((name) => ({
     name,
     symbolSize: factions.has(name) ? 26 : 20,
     category: factions.has(name) ? '势力' : '角色',
+    desc: descMap.get(name),
   }))
   const links: Array<{ source: string; target: string; note?: string; label?: { show: boolean; formatter: string } }> = []
   for (const r of bp.relations ?? []) {
@@ -59,9 +67,11 @@ function buildOption(bp: Blueprint) {
       trigger: 'item',
       extraCssText: 'max-width: 300px; white-space: normal;',
       confine: true,
-      formatter: (p: { dataType?: string; data?: { name?: string; note?: string } }) => {
+      formatter: (p: { dataType?: string; data?: { name?: string; note?: string; desc?: string } }) => {
         if (p.dataType === 'edge') return p.data?.note ?? ''
-        return (p.data && p.data.name) || ''
+        const name = (p.data && p.data.name) || ''
+        const desc = p.data?.desc || ''
+        return desc ? `${name}\n${desc}` : name
       },
     },
     legend: { data: CATEGORIES.map((c) => c.name), bottom: 4, textStyle: { color: '#6b7280', fontSize: 12 } },

@@ -75,5 +75,15 @@ class Settings(BaseSettings):
     chapter_max_passages: int = 8                    # 提示 LLM 一章最多正文段数的软上界
     ending_max_chapters: int = 0                     # 硬性完结保险（0=关闭，纯 LLM 收敛判定）
 
+    # 出场人物建档（正文人物识别 → 世界观"出场人物"账本）：
+    #   appearance_tracking_enabled 关闭即退回旧行为（正文里顺带出场的名字不建档）；
+    #   appearance_promote_threshold 同一名字累计出场 >= 该次数即升格为正式角色（进知识图谱/注入上下文）；
+    #   appearance_extract_max_attempts / narrative_update_max_attempts 分别是人物识别与叙事状态更新
+    #   失败时的最大尝试次数（两者都是辅助步骤，重试耗尽后静默跳过，不阻断正文本体）。
+    appearance_tracking_enabled: bool = True
+    appearance_promote_threshold: int = 2
+    appearance_extract_max_attempts: int = 2
+    narrative_update_max_attempts: int = 2
+
 
 settings = Settings()

@@ -472,6 +472,7 @@ async def get_blueprint(sid: str = Path(...), user: str = Depends(get_current_us
         "world": flatten_world(story.world),
         "history": filter_real_entity_history(storyline, story.history),
         "characters": story.characters,
+        "appearances": story.appearances,
         "style": story.style_profile_id,
         "foreshadows": story.foreshadows,
         "relations": story.relations,

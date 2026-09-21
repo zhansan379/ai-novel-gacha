@@ -17,7 +17,8 @@ from app.services.facts import build_facts, build_narrative_context, init_foresh
 from app.services.genre import genre_constraint_text, resolve_genres, structure_hint
 from app.services.grounding import GROUNDING_LABEL, GroundingService
 from app.services.jsonparse import loads_coerce
-from app.services.narrative import NarrativeUpdater
+from app.services.narrative import (NarrativeUpdater, drop_formalized_appearances,
+                                    register_appearances)
 from app.services.progression import ProgressionService
 from app.services.retrieval import ProfileDeterminer, RetrievalProfile, prefetch
 from app.services.store import Story, StoryStore, flatten_world
@@ -359,12 +360,17 @@ class StoryService:
         await self._finish_opening(story, opening, premise, synopsis)
 
     async def _finish_opening(self, story: Story, opening: str, premise: str, synopsis: str) -> None:
-        """开篇后续：质检 + 挂到故事首拍。fanout/legacy 共用。"""
+        """开篇后续：出场人物识别 + 质检 + 挂到故事首拍。fanout/legacy 共用。"""
         lint, consistency = await self._quality(
             premise, synopsis, opening, facts=build_facts(story))
         story.open_chapter()  # 开篇最先定位为第 1 章
-        story.passages.append({"no": 1, "decision_no": None, "content": opening.strip(),
-                               "lint": lint, "consistency": consistency})
+        passage = {"no": 1, "decision_no": None, "content": opening.strip(),
+                   "lint": lint, "consistency": consistency}
+        # 开篇正文也可能直接点出全新人名，同样建档（无方向，只登记/升格，不做叙事状态更新）
+        reg, prom = await self._record_appearances(story, opening.strip(), 1)
+        passage["appearances"] = reg + prom
+        passage["update_failed"] = False
+        story.passages.append(passage)
         story.open_chapter().passage_to = 1
 
     def _writer_chapter_note(self, story: Story) -> str:
@@ -445,6 +451,7 @@ class StoryService:
         # 还原角色/伏笔/关系到本步推进前（relations 用键存在性判断，空列表也是合法回滚值）
         if decision.rollback:
             story.characters = decision.rollback.get("characters") or story.characters
+            story.appearances = decision.rollback.get("appearances") or story.appearances
             story.foreshadows = decision.rollback.get("foreshadows") or story.foreshadows
             if "relations" in decision.rollback:
                 story.relations = decision.rollback["relations"]
@@ -478,6 +485,7 @@ class StoryService:
         story.timeline = [t for t in story.timeline if t.get("decision_no") != decision_no]
         if decision.rollback:
             story.characters = decision.rollback.get("characters") or story.characters
+            story.appearances = decision.rollback.get("appearances") or story.appearances
             story.foreshadows = decision.rollback.get("foreshadows") or story.foreshadows
             # 空关系列表是合法回滚值，用键存在性而非真值判断
             if "relations" in decision.rollback:
@@ -486,31 +494,85 @@ class StoryService:
         StoryService._reconcile_chapters_after_removal(story)
 
     async def _advance_state(self, story: Story, direction_spec: DirectionSpec | None,
-                             passage: str) -> None:
-        """决策后：按剧情浓度推进伏笔/角色/关系，成为后续生成/质检的上下文。"""
+                             passage: str, *, passage_no: int) -> dict:
+        """决策后：正文人物识别建档 → 按剧情浓度推进伏笔/角色/关系。
+
+        返回 {"appearances": 本拍新登场名单, "update_failed": 叙事状态更新是否最终失败}。
+        辅助步骤全部 best-effort：重试耗尽或方向为空不阻断正文本体。
+        """
+        appearances: list[str] = []
+        if settings.appearance_tracking_enabled:
+            reg, prom = await self._record_appearances(story, passage, passage_no)
+            appearances = reg + prom
+
         if direction_spec is None:
-            return
+            return {"appearances": appearances, "update_failed": False}
+
         plan = self._narrative.advance_plan(
             kind=direction_spec.kind, passage=passage,
             characters=story.characters, foreshadows=story.foreshadows,
         )
-        if not plan.any:
-            return
-        try:
-            chars, fs, rels = await self._narrative.update(
-                premise=story.premise, synopsis=story.synopsis,
-                characters=story.characters, foreshadows=story.foreshadows,
-                relations=story.relations, passage=passage,
-                facts=build_facts(story),
-                advance_characters=plan.advance_characters,
-                advance_foreshadows=plan.advance_foreshadows,
-                advance_relations=plan.advance_relations,
-            )
-            story.characters = chars
-            story.foreshadows = fs
-            story.relations = rels
-        except Exception:
-            pass  # 状态更新为辅助步骤，失败不阻断正文流程
+        update_failed = False
+        if plan.any:
+            before = {c["name"] for c in story.characters if c.get("name")}
+            ok = False
+            for attempt in range(settings.narrative_update_max_attempts + 1):
+                try:
+                    chars, fs, rels = await self._narrative.update(
+                        premise=story.premise, synopsis=story.synopsis,
+                        characters=story.characters, foreshadows=story.foreshadows,
+                        relations=story.relations, passage=passage,
+                        facts=build_facts(story),
+                        advance_characters=plan.advance_characters,
+                        advance_foreshadows=plan.advance_foreshadows,
+                        advance_relations=plan.advance_relations,
+                    )
+                    story.characters = chars
+                    story.foreshadows = fs
+                    story.relations = rels
+                    ok = True
+                    break
+                except Exception:
+                    if attempt >= settings.narrative_update_max_attempts:
+                        update_failed = True  # 重试耗尽，账本暂时落后，但不阻断正文本体
+            if settings.appearance_tracking_enabled and story.appearances:
+                story.appearances = drop_formalized_appearances(story.appearances, story.characters)
+            if ok:
+                # 被叙事更新补录为正式角色的名字（且非本拍已建档），一并算作本拍新登场
+                this_pass = set(appearances)
+                grown = [n for n in (c["name"] for c in story.characters if c.get("name"))
+                         if n not in before and n not in this_pass]
+                appearances += grown
+        return {"appearances": appearances, "update_failed": update_failed}
+
+    async def _extract_names(self, story: Story, passage_text: str) -> list[str]:
+        """正文人名识别（best-effort）：已知人物 = 正式角色 + 出场人物；重试耗尽返回空。"""
+        if not settings.appearance_tracking_enabled:
+            return []
+        known = [c["name"] for c in story.characters if c.get("name")] \
+            + [a["name"] for a in story.appearances if a.get("name")]
+        for attempt in range(settings.appearance_extract_max_attempts + 1):
+            try:
+                return await self._narrative.extract_names(passage=passage_text, known=known)
+            except Exception:
+                if attempt >= settings.appearance_extract_max_attempts:
+                    return []
+        return []
+
+    async def _record_appearances(self, story: Story, passage_text: str,
+                                  passage_no: int) -> tuple[list[str], list[str]]:
+        """正文人物识别 → 登记出场账本/升格正式角色。返回 (registered, promoted)。"""
+        if not settings.appearance_tracking_enabled:
+            return [], []
+        names = await self._extract_names(story, passage_text)
+        if not names:
+            return [], []
+        apps, chars, reg, prom = register_appearances(
+            story.appearances, story.characters, names,
+            passage_no=passage_no, threshold=settings.appearance_promote_threshold)
+        story.appearances = apps
+        story.characters = chars
+        return reg, prom
 
     async def _determine_profile(self, premise: str, synopsis: str) -> RetrievalProfile:
         """产出本书检索画像（开书一次）。无 profiler / 任何失败 → 回退默认（视为纯召回）。"""
@@ -580,6 +642,7 @@ class StoryService:
         decision.applied = True
         decision.rollback = {
             "characters": copy.deepcopy(story.characters),
+            "appearances": copy.deepcopy(story.appearances),
             "foreshadows": copy.deepcopy(story.foreshadows),
             "relations": copy.deepcopy(story.relations),
         }
@@ -593,12 +656,15 @@ class StoryService:
         )
         lint, consistency = await self._quality(story.premise, story.synopsis, prose,
                                             facts=build_facts(story))
-        passage = {"no": len(story.passages) + 1, "decision_no": decision_no,
+        no = len(story.passages) + 1
+        passage = {"no": no, "decision_no": decision_no,
                    "content": prose.strip(), "lint": lint, "consistency": consistency}
         story.passages.append(passage)
-        self._append_timeline(story, decision, passage["no"], prose.strip())
+        self._append_timeline(story, decision, no, prose.strip())
         try:
-            await self._advance_state(story, direction_spec, prose.strip())
+            info = await self._advance_state(story, direction_spec, prose.strip(), passage_no=no)
+            passage["appearances"] = info["appearances"]
+            passage["update_failed"] = info["update_failed"]
             # 章节收束 / 结局判定（失败回退不收束，不阻断）
             closed_ch = await self._apply_progression(story, direction_spec, prose.strip())
             passage["story_end"] = story.status == "completed"
@@ -630,6 +696,7 @@ class StoryService:
         decision.applied = True
         decision.rollback = {
             "characters": copy.deepcopy(story.characters),
+            "appearances": copy.deepcopy(story.appearances),
             "foreshadows": copy.deepcopy(story.foreshadows),
             "relations": copy.deepcopy(story.relations),
         }
@@ -657,11 +724,14 @@ class StoryService:
         try:
             lint, consistency = await self._quality(story.premise, story.synopsis, content,
                                                     facts=build_facts(story))
-            passage = {"no": len(story.passages) + 1, "decision_no": decision_no,
+            no = len(story.passages) + 1
+            passage = {"no": no, "decision_no": decision_no,
                        "content": content, "lint": lint, "consistency": consistency}
             story.passages.append(passage)
-            self._append_timeline(story, decision, passage["no"], content)
-            await self._advance_state(story, direction_spec, content)
+            self._append_timeline(story, decision, no, content)
+            info = await self._advance_state(story, direction_spec, content, passage_no=no)
+            passage["appearances"] = info["appearances"]
+            passage["update_failed"] = info["update_failed"]
 
             # 章节收束 / 结局判定（失败回退不收束，不阻断）
             closed_ch = await self._apply_progression(story, direction_spec, content)

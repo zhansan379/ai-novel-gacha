@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 
 from app.services.grounding import GROUNDING_LABEL
-from app.services.store import Story
+from app.services.store import Story, normalize_factions
 
 
 def init_foreshadows(seeds: list) -> list[dict]:
@@ -136,6 +136,8 @@ def build_narrative_context(story: Story, *, max_recent: int = 4,
         lines.append(f"- 世界规则：{rule}")
     for con in (story.world.get("constraints") or []):
         lines.append(f"- 世界限制：{con}")
+    for f in normalize_factions(story.world.get("factions")):
+        lines.append(f"- 势力「{f['name']}」：{f['description']}" if f["description"] else f"- 势力「{f['name']}」")
     for c in _clip_characters(story.characters, key, max_chars):
         name = (c.get("name") or "").strip()
         if not name:
@@ -186,6 +188,8 @@ def build_facts(story: Story) -> list[str]:
         facts.append(f"设定规则：{rule}")
     for con in (story.world.get("constraints") or []):
         facts.append(f"设定限制：{con}")
+    for f in normalize_factions(story.world.get("factions")):
+        facts.append(f"势力：{f['name']}——{f['description']}" if f["description"] else f"势力：{f['name']}")
 
     for f in story.foreshadows:
         facts.append(f"已埋伏笔({f.get('status', 'planted')})：{f.get('text', '')}")

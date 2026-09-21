@@ -4,13 +4,15 @@
 - 伏笔推进/回收（planted → advanced → paid_off）、可新埋；角色可增量改或新登场。
 - advance_plan 做差分门控：按剧情浓度决定本次推进哪些账本（低浓度过场只推进关系，
   不惊动伏笔），并把"是否启用某账本"传进 update 的提示词与落账逻辑。
-- 宽容处理：解析失败或上游异常时原样返回旧状态，绝不因为这次辅助更新影响正文生成。
+- 宽容处理：update 的真实失败（网关异常 / 解析失败）会向上抛，由 story_service 重试；
+  重试耗尽后静默跳过，绝不因为这次辅助更新影响正文生成。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from app.llm import LLMGateway
+from app.llm.errors import ModelError
 from app.schemas import DirectionKind
 from app.services.jsonparse import loads_coerce
 
@@ -21,6 +23,18 @@ _HIGH_CONCENTRATION_KINDS = {
     DirectionKind.EVENT, DirectionKind.ACTION, DirectionKind.MEETING,
     DirectionKind.FORESHADOW, DirectionKind.CUSTOM,
 }
+
+_APPEARANCE_SYSTEM = """你是中文小说「出场人物识别器」。从一段正文里找出所有"有名有姓地出场"的具体人物名字
+（中文姓名，如"林浩""李健国"；含以称呼名稳定指代同一人的，如"掌柜老王"），供世界观出场人物建档。
+
+判断标准只有一个：这确实是正文里某个具体人的名字或专属称谓。严格排除——
+- 泛称 / 职业 / 身份 / 亲属称呼：警察、老板、少年、老者、掌柜、师爷、妈、哥、读者、众人
+- 地名 / 机构 / 势力名：雾海旧城、守刻人、黑市势力
+- 代词：他、她、我、你、那人
+- 已知人物名单里已有的人（名单外才算新出场）
+
+严格只输出一个 JSON 字符串数组（如 ["林浩","李健国"]），不要解释、不要 markdown。拿不准的宁缺毋滥。
+"""
 
 
 def _narrative_system(*, advance_characters: bool, advance_foreshadows: bool,
@@ -182,9 +196,73 @@ def _apply_relations(relations: list, updates: list) -> list:
     return rel
 
 
+def register_appearances(appearances: list, characters: list, names: list,
+                         *, passage_no: int, threshold: int) -> tuple[list, list, list, list]:
+    """把识别出的新名字登记进出场账本；累计出场达 threshold 即升格为正式角色。
+
+    正式角色（characters）进知识图谱并参与生成上下文；未达阈值的留在出场人物账本
+    （appearances）。同一名字只会在其中一个账本里。返回
+    (新appearances, 新characters, 新登记未升格名单, 本次升格名单)。
+    """
+    chars = list(characters)
+    by_char = {c["name"]: c for c in chars}
+    apps = list(appearances)
+    by_app = {a["name"]: a for a in apps}
+    registered: list[str] = []
+    promoted: list[str] = []
+    for name in names:
+        if name in by_char:
+            continue
+        entry = by_app.get(name)
+        if entry is None:
+            entry = {"name": name, "count": 0, "first_no": passage_no}
+            by_app[name] = entry
+            apps.append(entry)
+        entry["count"] += 1
+        if entry["count"] >= threshold:
+            chars.append({"name": name, "role": "supporter", "goal": "", "inner_need": "",
+                          "flaw": "", "trait": ""})
+            by_char[name] = chars[-1]
+            apps.remove(entry)
+            del by_app[name]
+            promoted.append(name)
+        else:
+            registered.append(name)
+    return apps, chars, registered, promoted
+
+
+def drop_formalized_appearances(appearances: list, characters: list) -> list:
+    """把已升格为正式角色（含被 narrative.update 补录为角色）的名字从出场账本里清掉。"""
+    by_char = {c["name"] for c in characters}
+    return [a for a in appearances if a["name"] not in by_char]
+
+
 class NarrativeUpdater:
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
+
+    async def extract_names(self, *, passage: str, known: list[str]) -> list[str]:
+        """确定性辨识正文里"有名有姓出场"的人物名（区别于 update 的主观建档）。
+
+        这是出场人物建档的判别来源：模型给出名字就登记，不判断重要程度、不要求有
+        剧情变化。返回去重、排除已知人物后的名单；解析失败抛 ModelError，由调用方重试/兜底。
+        """
+        know_txt = "、".join(known) if known else "（无）"
+        user = f"【已知人物（勿重复报）】\n{know_txt}\n【待识别正文】\n{passage}\n请输出新出场人名数组："
+        raw = await self._gateway.complete(task="appearance", system=_APPEARANCE_SYSTEM,
+                                           user=user, max_tokens=300)
+        data = loads_coerce(raw)
+        if not isinstance(data, list):
+            raise ModelError(f"出场人物识别响应不是数组：{raw[:200]}")
+        known_set = set(known)
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in data:
+            name = str(item or "").strip()
+            if name and name not in known_set and name not in seen:
+                seen.add(name)
+                out.append(name)
+        return out
 
     def advance_plan(self, *, kind: DirectionKind, passage: str,
                      characters: list, foreshadows: list) -> AdvancePlan:
@@ -220,9 +298,11 @@ class NarrativeUpdater:
                      facts: list[str] | None = None,
                      advance_characters: bool = True, advance_foreshadows: bool = True,
                      advance_relations: bool = True) -> tuple[list, list, list]:
-        """返回 (新characters, 新foreshadows, 新relations)；解析失败或上游异常则原样返回。
+        """返回 (新characters, 新foreshadows, 新relations)。
 
-        未启用的账本不参与解析落账，保持原样。
+        注意：真实失败（网关异常 / 解析不成合法对象）会向上抛异常，由调用方负责重试，
+        不再在此静默吞掉——否则"模型没报更新"与"调用失败"无法区分，重试就失去意义。
+        合法但无任何更新（空数组）仍是正常成功。
         """
         user = _build_user(premise=premise, synopsis=synopsis, characters=characters,
                            foreshadows=foreshadows, relations=relations, passage=passage,
@@ -232,13 +312,10 @@ class NarrativeUpdater:
             advance_foreshadows=advance_foreshadows,
             advance_relations=advance_relations,
         )
-        try:
-            raw = await self._gateway.complete(task="narrative_update", system=system, user=user)
-            data = loads_coerce(raw)
-            if not isinstance(data, dict):
-                return characters, foreshadows, relations
-        except Exception:
-            return characters, foreshadows, relations
+        raw = await self._gateway.complete(task="narrative_update", system=system, user=user)
+        data = loads_coerce(raw)
+        if not isinstance(data, dict):
+            raise ModelError(f"叙事状态更新响应不是对象：{raw[:200]}")
 
         new_fs = list(foreshadows)
         if advance_foreshadows:

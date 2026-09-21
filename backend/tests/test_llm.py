@@ -104,14 +104,15 @@ async def test_narrative_update_applies():
 
 
 @pytest.mark.anyio
-async def test_narrative_update_lenient_on_bad_output():
+async def test_narrative_update_raises_on_bad_output():
+    # 新契约：网关/解析失败向上抛（{_caller 重试），而非静默返回旧状态——否则"没更新"与"失败"无法区分。
     up = NarrativeUpdater(_stub_completer("not-json"))
     chars = [{"name": "阿刻"}]
     fs = [{"id": "f", "text": "t", "status": "planted"}]
     rels = [{"a": "阿刻", "b": "刻影", "label": "宿敌", "note": ""}]
-    nch, nfs, nrel = await up.update(premise="p", synopsis="s", characters=chars,
-                                     foreshadows=fs, relations=rels, passage="正文")
-    assert nch == chars and nfs == fs and nrel == rels
+    with pytest.raises(Exception):
+        await up.update(premise="p", synopsis="s", characters=chars,
+                        foreshadows=fs, relations=rels, passage="正文")
 
 
 def test_advance_plan_differs_by_concentration():

@@ -102,7 +102,8 @@ def _row_to_decision(row: sqlite3.Row) -> Decision:
 def _blueprint_json(story: Story) -> str:
     return json.dumps({
         "world": story.world, "history": story.history,
-        "characters": story.characters, "style": story.style_profile_id,
+        "characters": story.characters, "appearances": story.appearances,
+        "style": story.style_profile_id,
         "foreshadows": story.foreshadows, "relations": story.relations,
         "timeline": story.timeline, "grounding": story.grounding,
         "retrieval_profile": story.retrieval_profile,
@@ -134,6 +135,7 @@ def _fill_blueprint(story: Story, text: str | None) -> None:
         story.world = flatten_world(data.get("world") or {})
         story.history = data.get("history") or []
         story.characters = data.get("characters") or []
+        story.appearances = data.get("appearances") or []
         story.foreshadows = data.get("foreshadows") or []
         story.relations = data.get("relations") or []
         story.grounding = data.get("grounding") or []
@@ -314,6 +316,7 @@ class SQLiteStore:
                     for d in story.decisions.values()
                 ],
                 "world": story.world, "history": story.history, "characters": story.characters,
+                "appearances": story.appearances,
                 "foreshadows": story.foreshadows, "relations": story.relations,
                 "timeline": story.timeline, "grounding": story.grounding,
                 "retrieval_profile": story.retrieval_profile,
@@ -355,6 +358,7 @@ class SQLiteStore:
                 world=data.get("world") or {},
                 history=data.get("history") or [],
                 characters=data.get("characters") or [],
+                appearances=data.get("appearances") or [],
                 style_profile_id=data.get("style_profile_id") or "restrained",
                 foreshadows=data.get("foreshadows") or [],
                 timeline=data.get("timeline") or [],
