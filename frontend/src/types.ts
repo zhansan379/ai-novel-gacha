@@ -220,6 +220,7 @@ export interface Blueprint {
   characters: CharacterCard[]
   appearances?: AppearanceItem[]
   style?: string
+  genre?: string
   foreshadows?: ForeshadowItem[]
   relations?: RelationEdge[]
   grounding?: string[]

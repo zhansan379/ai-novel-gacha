@@ -474,6 +474,7 @@ async def get_blueprint(sid: str = Path(...), user: str = Depends(get_current_us
         "characters": story.characters,
         "appearances": story.appearances,
         "style": story.style_profile_id,
+        "genre": story.genre or (story.retrieval_profile or {}).get("genre", ""),
         "foreshadows": story.foreshadows,
         "relations": story.relations,
         "grounding": filter_grounding(storyline, story.grounding),

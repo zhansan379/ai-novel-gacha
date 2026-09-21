@@ -49,7 +49,10 @@ onMounted(async () => {
     <p v-if="loading" class="hint">加载设定…</p>
     <p v-else-if="error" class="err">{{ error }}</p>
     <template v-else-if="bp">
-      <p v-if="styleName(bp.style)" class="style-tag">文风：{{ styleName(bp.style) }}</p>
+      <p v-if="styleName(bp.style) || bp.genre" class="meta-tags">
+        <span v-if="styleName(bp.style)" class="style-tag">文风：{{ styleName(bp.style) }}</span>
+        <span v-if="bp.genre" class="genre-tag">题材：{{ bp.genre }}</span>
+      </p>
       <CollapsePanel class="blk" title="世界观">
         <p v-if="bp.world.geography" class="row"><b>地理：</b>{{ bp.world.geography }}</p>
         <p v-if="bp.world.power_system" class="row"><b>力量体系：</b>{{ bp.world.power_system }}</p>
@@ -130,11 +133,26 @@ onMounted(async () => {
   padding: 6px 14px 10px;
   background: var(--bg-card);
 }
-.style-tag {
+.meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin: 8px 0 2px;
+}
+.style-tag {
   font-size: 13px;
   color: #4f46e5;
   font-weight: 600;
+}
+.genre-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #047857;
+  background: #d1fae5;
+  border-radius: 4px;
+  padding: 0 8px;
 }
 .blk {
   padding: 8px 0;
