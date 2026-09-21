@@ -6,7 +6,7 @@ import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { api } from '../api/client'
 import type { ECharts } from 'echarts/core'
-import type { Blueprint, RelationEdge } from '../types'
+import type { Blueprint } from '../types'
 
 echarts.use([GraphChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -46,25 +46,22 @@ function buildOption(bp: Blueprint) {
     symbolSize: factions.has(name) ? 26 : 20,
     category: factions.has(name) ? '势力' : '角色',
   }))
-  const links: Array<{ source: string; target: string; label?: { show: boolean; formatter: string } }> = []
+  const links: Array<{ source: string; target: string; note?: string; label?: { show: boolean; formatter: string } }> = []
   for (const r of bp.relations ?? []) {
     if (!r.a || !r.b) continue
-    const edge: { source: string; target: string; label?: { show: boolean; formatter: string } } =
-      { source: r.a, target: r.b }
+    const edge: { source: string; target: string; note?: string; label?: { show: boolean; formatter: string } } =
+      { source: r.a, target: r.b, note: r.note }
     if (r.label) edge.label = { show: true, formatter: r.label }
     links.push(edge)
   }
   return {
     tooltip: {
       trigger: 'item',
-      formatter: (p: { dataType?: string; data?: { name?: string; note?: string }; value?: unknown; category?: unknown }) => {
-        if (p.dataType === 'edge') return ''
-        const matching = (bp.relations ?? [])
-          .map((r: RelationEdge) => (p.data && (p.data.name === r.a || p.data.name === r.b)) ? r : null)
-          .filter((r: RelationEdge | null): r is RelationEdge => !!r)
-        if (!matching.length) return (p.data && p.data.name) || ''
-        const lines = matching.map((r) => `${r.a} ${r.label ?? '与'} ${r.b}` + (r.note ? `\n　·${r.note}` : ''))
-        return `${(p.data && p.data.name) || ''}\n${lines.join('\n')}`
+      extraCssText: 'max-width: 300px; white-space: normal;',
+      confine: true,
+      formatter: (p: { dataType?: string; data?: { name?: string; note?: string } }) => {
+        if (p.dataType === 'edge') return p.data?.note ?? ''
+        return (p.data && p.data.name) || ''
       },
     },
     legend: { data: CATEGORIES.map((c) => c.name), bottom: 4, textStyle: { color: '#6b7280', fontSize: 12 } },
