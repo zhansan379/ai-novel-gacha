@@ -213,6 +213,19 @@ export interface CharacterCard {
 export interface ForeshadowItem { id: string; text: string; origin: string; status: 'planted' | 'advanced' | 'paid_off' }
 export interface RelationEdge { a: string; b: string; label?: string; note?: string }
 export interface AppearanceItem { name: string; count: number; first_no?: number }
+export interface GenreCardSummary {
+  id: string
+  label: string
+  card_title: string
+  pacing?: string
+  anti_patterns?: string[]
+  structure?: [string, string][]
+}
+
+export interface GenreCardDetail extends GenreCardSummary {
+  body: string
+}
+
 export interface Blueprint {
   story_id: string
   world: WorldSetting
@@ -221,6 +234,7 @@ export interface Blueprint {
   appearances?: AppearanceItem[]
   style?: string
   genre?: string
+  genre_cards?: GenreCardSummary[]
   foreshadows?: ForeshadowItem[]
   relations?: RelationEdge[]
   grounding?: string[]

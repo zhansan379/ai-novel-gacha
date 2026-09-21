@@ -313,20 +313,26 @@ def structure_hint(specs: list[GenreSpec]) -> str:
     return "\n".join(rows)
 
 
-def card_text(spec: GenreSpec) -> str:
-    """读取正文题材卡原文（以卡文件为准；缺失返回空串）。供正文/方向注入用的详细参考。"""
-    if not spec.card_file:
+def _read_card(title: str) -> str:
+    """读取正文题材卡原文；缺失返回空串。去掉 frontmatter，只留正文卡内容。"""
+    if not title:
         return ""
-    path = _GENRE_CARD_DIR / f"{spec.card_file}.md"
+    path = _GENRE_CARD_DIR / f"{title}.md"
     try:
         text = path.read_text(encoding="utf-8")
     except (IOError, OSError):
         return ""
-    # 去掉 frontmatter，只保留正文卡内容
     if text.startswith("---"):
         _, _, body = text.partition("\n---\n")
         return body.strip() if body else text.strip()
     return text.strip()
+
+
+def card_text(spec: GenreSpec) -> str:
+    """读取正文题材卡原文（以卡文件为准；缺失返回空串）。供正文/方向注入用的详细参考。"""
+    if not spec.card_file:
+        return ""
+    return _read_card(spec.card_file)
 
 
 def available_cards() -> list[str]:
@@ -334,3 +340,58 @@ def available_cards() -> list[str]:
     if not _GENRE_CARD_DIR.is_dir():
         return []
     return sorted(p.stem for p in _GENRE_CARD_DIR.glob("*.md") if p.stem != "README")
+
+
+def _card_specs() -> dict[str, GenreSpec | None]:
+    """盘点所有题材卡：id 与卡标题都可作为访问键，映射到 GenreSpec。
+    目录里有但 GENRE_SPECS 未注册的卡也纳入（映射 None），保证全部可浏览。"""
+    out: dict[str, GenreSpec | None] = {}
+    for spec in GENRE_SPECS:
+        if not spec.card_file:
+            continue
+        out.setdefault(spec.id, spec)
+        out.setdefault(spec.card_file, spec)
+    for title in available_cards():
+        out.setdefault(title, None)
+    return out
+
+
+def card_index() -> list[dict]:
+    """全部题材卡索引 [{id, label, card_title}, ...]，以 genre_cards/ 目录为准。
+    多题材共用一张卡文件时（如 都市/现实 共用 都市日常），取注册序首个归属。"""
+    owner: dict[str, GenreSpec] = {}
+    for spec in GENRE_SPECS:
+        if spec.card_file:
+            owner.setdefault(spec.card_file, spec)
+    out = []
+    for title in available_cards():
+        spec = owner.get(title)
+        out.append({
+            "id": (spec.id if spec is not None else title),
+            "label": (spec.label if spec is not None else title),
+            "card_title": title,
+        })
+    return out
+
+
+def card_detail_by(gid: str) -> dict:
+    """单卡完整内容 {id, label, card_title, pacing, anti_patterns, structure, body}。
+    gid 可为题材 id 或卡标题；找不到抛 KeyError。"""
+    specs = _card_specs()
+    spec = specs.get(gid)
+    if gid not in specs:
+        raise KeyError(gid)
+    if spec is None:  # 目录里有、GENRE_SPECS 未注册的卡
+        title = gid
+        return {
+            "id": gid, "label": gid, "card_title": gid,
+            "pacing": "", "anti_patterns": [], "structure": [], "body": _read_card(gid),
+        }
+    title = spec.card_file or gid
+    return {
+        "id": spec.id, "label": spec.label, "card_title": title,
+        "pacing": spec.pacing,
+        "anti_patterns": list(spec.anti_patterns),
+        "structure": [[t, d] for t, d in spec.structure],
+        "body": card_text(spec),
+    }

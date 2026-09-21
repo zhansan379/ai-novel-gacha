@@ -4,8 +4,8 @@
  */
 import type {
   ApplyResponse, Blueprint, CardsResponse, Chapter, ChaptersResponse, CreateTaskAccepted,
-  CreateTaskStatus, DrawResponse, ModelsConfig, StoryList, StorySnapshot, StorySummary, StyleProfile,
-  TimelineResponse,
+  CreateTaskStatus, DrawResponse, GenreCardDetail, GenreCardSummary, ModelsConfig, StoryList,
+  StorySnapshot, StorySummary, StyleProfile, TimelineResponse,
 } from '../types'
 
 const BASE = '/v1'
@@ -145,6 +145,9 @@ export const api = {
   },
 
   getBlueprint: (storyId: string) => req<Blueprint>(`/stories/${storyId}/blueprint`),
+
+  getGenres: () => req<{ genres: GenreCardSummary[] }>('/genres').then((r) => r.genres),
+  getGenreCard: (id: string) => req<GenreCardDetail>(`/genres/${encodeURIComponent(id)}`),
 
   getTimeline: (storyId: string) => req<TimelineResponse>(`/stories/${storyId}/timeline`),
 

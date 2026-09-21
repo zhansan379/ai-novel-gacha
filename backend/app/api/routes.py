@@ -466,7 +466,16 @@ async def get_blueprint(sid: str = Path(...), user: str = Depends(get_current_us
     """
     story = decision_path(sid)
     from app.services.grounding import filter_grounding, filter_real_entity_history
+    from app.services.genre import resolve_genres
     storyline = f"{story.premise}\n{story.synopsis}"
+    genre_label = story.genre or (story.retrieval_profile or {}).get("genre", "")
+    # 题材卡摘要（不含正文原文 body，避免每次加载拉大段参考）；命中即随蓝图透出
+    genre_cards = [
+        {"id": s.id, "label": s.label, "card_title": s.card_file,
+         "pacing": s.pacing, "anti_patterns": list(s.anti_patterns),
+         "structure": [[t, d] for t, d in s.structure]}
+        for s in resolve_genres(story.premise, explicit=genre_label) if s.card_file
+    ]
     return {
         "story_id": story.id,
         "world": flatten_world(story.world),
@@ -474,11 +483,29 @@ async def get_blueprint(sid: str = Path(...), user: str = Depends(get_current_us
         "characters": story.characters,
         "appearances": story.appearances,
         "style": story.style_profile_id,
-        "genre": story.genre or (story.retrieval_profile or {}).get("genre", ""),
+        "genre": genre_label,
+        "genre_cards": genre_cards,
         "foreshadows": story.foreshadows,
         "relations": story.relations,
         "grounding": filter_grounding(storyline, story.grounding),
     }
+
+
+@router.get("/genres", tags=["genre"])
+async def list_genre_cards(user: str = Depends(get_current_user)):
+    """全部题材卡索引（浏览切换用）：[{id, label, card_title}, ...]。"""
+    from app.services.genre import card_index
+    return {"genres": card_index()}
+
+
+@router.get("/genres/{gid}", tags=["genre"])
+async def get_genre_card(gid: str = Path(...), user: str = Depends(get_current_user)):
+    """单张题材卡完整内容（含正文参考原文 body）。gid 为题材 id 或卡标题。"""
+    from app.services.genre import card_detail_by
+    try:
+        return card_detail_by(gid)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"题材卡不存在: {gid}")
 
 
 @router.get("/stories/{sid}/foreshadows", tags=["story"])

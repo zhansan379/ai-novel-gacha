@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { api } from '../api/client'
 import CollapsePanel from './CollapsePanel.vue'
+import GenreCardViewer from './GenreCardViewer.vue'
 import type { Blueprint, Faction, StyleProfile, TimelineEvent } from '../types'
 
 const props = defineProps<{ storyId: string }>()
@@ -10,6 +11,7 @@ const styles = ref<StyleProfile[]>([])
 const timeline = ref<TimelineEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const viewerOpen = ref(false)
 
 /** 势力归一：兼容旧版纯名字数组与新版 {name, description} 对象。 */
 const normalFactions = (factions?: Array<Faction | string>): Faction[] =>
@@ -49,10 +51,18 @@ onMounted(async () => {
     <p v-if="loading" class="hint">加载设定…</p>
     <p v-else-if="error" class="err">{{ error }}</p>
     <template v-else-if="bp">
-      <p v-if="styleName(bp.style) || bp.genre" class="meta-tags">
+      <div v-if="styleName(bp.style) || bp.genre || bp.genre_cards?.length" class="meta-tags">
         <span v-if="styleName(bp.style)" class="style-tag">文风：{{ styleName(bp.style) }}</span>
-        <span v-if="bp.genre" class="genre-tag">题材：{{ bp.genre }}</span>
-      </p>
+        <button
+          v-if="bp.genre || bp.genre_cards?.length"
+          type="button"
+          class="genre-tag"
+          title="打开题材手册"
+          @click="viewerOpen = true"
+        >
+          题材：{{ bp.genre_cards?.[0]?.card_title || bp.genre }}
+        </button>
+      </div>
       <CollapsePanel class="blk" title="世界观">
         <p v-if="bp.world.geography" class="row"><b>地理：</b>{{ bp.world.geography }}</p>
         <p v-if="bp.world.power_system" class="row"><b>力量体系：</b>{{ bp.world.power_system }}</p>
@@ -122,6 +132,12 @@ onMounted(async () => {
         <p v-else class="muted">尚无剧情（每做一次决策追加一条）</p>
       </CollapsePanel>
     </template>
+
+    <GenreCardViewer
+      v-if="viewerOpen && bp"
+      :initial-id="bp.genre_cards?.[0]?.id"
+      @close="viewerOpen = false"
+    />
   </section>
 </template>
 
@@ -147,12 +163,20 @@ onMounted(async () => {
 .genre-tag {
   display: inline-flex;
   align-items: center;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 600;
   color: #047857;
   background: #d1fae5;
+  border: none;
   border-radius: 4px;
   padding: 0 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.genre-tag:hover {
+  color: #065f46;
+  background: #a7f3d0;
 }
 .blk {
   padding: 8px 0;
